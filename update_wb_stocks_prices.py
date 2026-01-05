@@ -481,14 +481,6 @@ def main() -> None:
     
     all_stocks_data: Dict[int, List[Dict[str, Any]]] = {}  # {warehouse_id: [stocks]}
     all_prices_data: List[Dict[str, Any]] = []
-    stocks_cache_by_warehouse: Dict[int, Dict[str, int]] = {}  # {warehouse_id: {barcode: chrtId}}
-    
-    # Инициализируем кэш остатков (будем заполнять по требованию)
-    print("  Инициализация кэша остатков...")
-    for warehouse in warehouses:
-        warehouse_id = warehouse.get('id')
-        stocks_cache_by_warehouse[warehouse_id] = {}
-        print(f"    Склад {warehouse_id}: кэш готов (будет заполняться по требованию)")
     
     for brand in Config.BRANDS:
         print(f"\nБренд: {brand}")
@@ -557,34 +549,28 @@ def main() -> None:
                 if warehouse_id not in all_stocks_data:
                     all_stocks_data[warehouse_id] = []
                 
-                # Используем предзагруженный кэш
-                stocks_cache = stocks_cache_by_warehouse.get(warehouse_id, {})
-                
-                # Получаем баркод для обновления остатков
-                # Сначала пробуем баркод из CSV, если его нет - получаем из файла соответствия (колонка G)
-                barcode_for_stock = product.get('barcode')
-                if not barcode_for_stock and product.get('manufacturer_art'):
-                    # Получаем баркод по артикулу производителя из файла "Баркоды.xlsx" (колонка G)
-                    manufacturer_art = str(product['manufacturer_art']).strip()
-                    manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
-                    barcode_for_stock = manufacturer_art_to_barcode.get(manufacturer_art_clean) or manufacturer_art_to_barcode.get(manufacturer_art)
+                # Получаем баркод для обновления остатков из файла соответствия (колонка G)
+                # Баркод всегда берем из файла "Баркоды.xlsx", так как артикул уже проверен
+                barcode_for_stock = None
+                if manufacturer_art in manufacturer_art_to_barcode:
+                    barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art]
+                elif manufacturer_art_clean in manufacturer_art_to_barcode:
+                    barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art_clean]
+                else:
+                    # Пробуем нормализованный вариант
+                    for art_key, barcode_val in manufacturer_art_to_barcode.items():
+                        art_key_normalized = str(art_key).strip().replace(' ', '').upper().replace('-', '').replace('/', '').replace('_', '')
+                        if art_key_normalized == manufacturer_art_normalized:
+                            barcode_for_stock = barcode_val
+                            break
                 
                 if barcode_for_stock:
-                    # Получаем chrtId по баркоду из кэша или через API
-                    chrt_id = get_chrt_id_by_barcode(barcode_for_stock, warehouse_id, stocks_cache)
-                    
-                    if chrt_id:
-                        all_stocks_data[warehouse_id].append({
-                            "chrtId": chrt_id,
-                            "sku": barcode_for_stock,
-                            "amount": product['amount']
-                        })
-                    else:
-                        # Если не удалось получить chrtId, пробуем использовать только sku
-                        all_stocks_data[warehouse_id].append({
-                            "sku": barcode_for_stock,
-                            "amount": product['amount']
-                        })
+                    # Используем только sku - API сам найдет chrtId по sku при обновлении остатков
+                    # Это соответствует логике из update_prices_stocks_wb.py
+                    all_stocks_data[warehouse_id].append({
+                        "sku": barcode_for_stock,
+                        "amount": product['amount']
+                    })
         
         print(f"  Обработано товаров: {len(products)}")
         print(f"  Найдено соответствий: {matched_count}")
