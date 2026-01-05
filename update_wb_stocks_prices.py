@@ -470,12 +470,28 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
             # Повторяем запрос после задержки
             response = requests.post(url, headers=headers, json=payload, timeout=120)
         
+        # Обрабатываем 400 ошибку "prices already set" - это не критично
+        if response.status_code == 400:
+            try:
+                error_data = response.json()
+                error_text = error_data.get('errorText', '')
+                if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
+                    # Цены уже установлены - это нормально, не считаем ошибкой
+                    return True
+            except (ValueError, KeyError):
+                pass
+        
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
         print(f"    ✗ Ошибка при обновлении цен: {e}")
         if hasattr(e, 'response') and e.response is not None:
-            print(f"    Ответ сервера: {e.response.text}")
+            error_text = e.response.text
+            print(f"    Ответ сервера: {error_text}")
+            # Проверяем, не является ли это ошибкой "already set"
+            if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
+                # Цены уже установлены - это нормально
+                return True
         return False
 
 
