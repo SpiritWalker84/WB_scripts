@@ -122,14 +122,14 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
             # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки, индекс 4)
             df_art = pd.read_excel(art_file, header=0, skiprows=4)
             
-            # Структура:
-            # Колонка B (индекс 1) - артикул продавца
+            # Структура (как в update_prices_stocks_wb.py):
+            # Колонка B (индекс 1) - артикул производителя (каталожный номер)
             # Колонка C (индекс 2) - nmID (артикул WB)
             if len(df_art.columns) >= 3:
-                art_col = df_art.columns[1]  # Колонка B
-                nmid_col = df_art.columns[2]  # Колонка C
+                art_col = df_art.columns[1]  # Колонка B - артикул производителя
+                nmid_col = df_art.columns[2]  # Колонка C - nmID
                 
-                print(f"Использую колонку '{art_col}' (B) для артикула продавца")
+                print(f"Использую колонку '{art_col}' (B) для артикула производителя")
                 print(f"Использую колонку '{nmid_col}' (C) для nmID")
                 
                 for idx, row in df_art.iterrows():
@@ -144,6 +144,11 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         nmid = str(int(float(nmid_val))).strip()
                         
                         if art and nmid and art != 'nan':
+                            # Создаем соответствие артикул производителя -> nmID
+                            # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
+                            art_clean = art.replace(' ', '').upper()
+                            art_to_nmid[art_clean] = nmid
+                            # Также сохраняем оригинальный вариант (на случай если в CSV есть пробелы)
                             art_to_nmid[art] = nmid
                     except (ValueError, TypeError, KeyError):
                         continue
