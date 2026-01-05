@@ -462,6 +462,14 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
     try:
         # API требует POST, а не PUT
         response = requests.post(url, headers=headers, json=payload, timeout=120)
+        
+        # Обрабатываем 429 ошибку (Too Many Requests)
+        if response.status_code == 429:
+            print(f"    ⚠ Превышен лимит запросов (429), ожидание 5 секунд...")
+            time.sleep(5)
+            # Повторяем запрос после задержки
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+        
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
