@@ -367,34 +367,33 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                     continue
                 
                 # Ищем артикул продавца и баркод
-                # В файлах брендов нужно найти числовой артикул продавца для сопоставления
+                # Артикул продавца может быть буквенно-цифровым (например, T8307, EFM400, AG01007)
                 seller_art = None
                 barcode = None
                 
                 # Проверяем все колонки до колонки D (цена)
-                # Ищем числовой артикул продавца (для сопоставления с файлом соответствия)
+                # Структура CSV: колонка A (0) - бренд, колонка B (1) - артикул/название, колонка C (2) - возможно баркод/артикул
                 for col_idx in range(min(3, len(row))):
                     if col_idx >= len(row) or not row[col_idx]:
                         continue
                     
-                    potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '')
+                    potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '').replace(' ', '')
                     
                     # Пропускаем заголовки и пустые значения
-                    if potential_id.lower() in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '']:
+                    if potential_id.lower() in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '', 'none']:
                         continue
                     
-                    # Если это числовой артикул продавца (короткое число, обычно 1-6 цифр)
-                    if potential_id.isdigit() and len(potential_id) <= 10:
-                        seller_art = potential_id
-                        break
-                    # Если это длинный баркод (13+ цифр)
-                    elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
-                        barcode = potential_id
-                    # Если это артикул производителя (буквенно-цифровой, 5-20 символов)
-                    elif len(potential_id) >= 5 and len(potential_id) <= 20 and potential_id.replace('-', '').replace('_', '').isalnum():
-                        # Это может быть артикул производителя, но не используем его для сопоставления
-                        # так как в файлах соответствия нет такой колонки
-                        pass
+                    # Если это длинный баркод (13+ цифр) - EAN-13
+                    if len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
+                        barcode = potential_id.replace('-', '')
+                    # Если это артикул продавца (буквенно-цифровой, 2-20 символов, не похож на описание)
+                    elif len(potential_id) >= 2 and len(potential_id) <= 20:
+                        # Пропускаем если это похоже на описание (содержит запятые, скобки, длинное)
+                        if ',' not in potential_id and '[' not in potential_id and '(' not in potential_id:
+                            # Это может быть артикул продавца (например, T8307, EFM400, AG01007)
+                            if potential_id.replace('-', '').replace('_', '').isalnum():
+                                seller_art = potential_id
+                                # Не break, продолжаем искать баркод
                 
                 products.append({
                     'seller_art': seller_art,
@@ -411,6 +410,13 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
         first_product = products[0]
         print(f"  Пример: цена={first_product['price']}, количество={first_product['amount']}")
         print(f"    артикул={first_product.get('seller_art', 'не найден')}, баркод={first_product.get('barcode', 'не найден')}")
+        # Показываем первые несколько строк для отладки
+        if len(products) > 0:
+            print(f"  Отладка: первые 3 строки CSV:")
+            for i, p in enumerate(products[:3]):
+                row_data = p.get('row', [])
+                row_preview = [str(x)[:30] for x in row_data[:5]] if row_data else []
+                print(f"    Строка {i+1}: {row_preview}")
     return products
 
 
