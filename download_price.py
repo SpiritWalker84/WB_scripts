@@ -143,53 +143,79 @@ def find_latest_message_with_attachment(imap: imaplib.IMAP4_SSL) -> Message:
     
     print(f"Найдено писем: {len(email_ids)}")
     
-    # Собираем все письма с нужным вложением и их даты
-    candidates: List[Tuple[datetime, Message, bytes]] = []
+    # Оптимизация: сначала получаем только заголовки для сортировки по дате
+    # Это экономит память, так как не загружаем полные письма
+    print("Получение заголовков писем для сортировки...")
+    email_dates: List[Tuple[datetime, bytes]] = []
     
     for email_id in email_ids:
-        status, msg_data = imap.fetch(email_id, '(RFC822)')
-        
-        if status != 'OK':
-            continue
-        
-        msg = email.message_from_bytes(msg_data[0][1])
-        
-        # Проверяем наличие вложения
-        has_attachment = False
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_disposition() == 'attachment':
-                    filename = decode_filename(part.get_filename())
-                    
-                    if filename == Config.ATTACHMENT_FILENAME:
-                        has_attachment = True
-                        break
-        
-        if has_attachment:
-            # Получаем дату письма
-            date_header = msg.get('Date')
-            if date_header:
+        try:
+            # Получаем только заголовок Date, не все письмо
+            status, date_data = imap.fetch(email_id, '(BODY[HEADER.FIELDS (DATE)])')
+            
+            if status != 'OK' or not date_data[0]:
+                continue
+            
+            # Парсим дату из заголовка
+            date_header = date_data[0][1].decode('utf-8', errors='ignore')
+            if date_header.startswith('Date:'):
+                date_str = date_header[5:].strip()
                 try:
-                    date_obj = parsedate_to_datetime(date_header)
-                    candidates.append((date_obj, msg, email_id))
-                except (ValueError, TypeError) as e:
-                    print(f"Предупреждение: не удалось распарсить дату письма {email_id.decode()}: {e}")
-                    candidates.append((datetime.min, msg, email_id))
-            else:
-                print(f"Предупреждение: письмо {email_id.decode()} не содержит заголовок Date")
-                candidates.append((datetime.min, msg, email_id))
+                    date_obj = parsedate_to_datetime(date_str)
+                    email_dates.append((date_obj, email_id))
+                except (ValueError, TypeError):
+                    # Если не удалось распарсить, используем минимальную дату
+                    email_dates.append((datetime.min, email_id))
+        except Exception as e:
+            # Пропускаем письма с ошибками
+            continue
     
-    if not candidates:
-        raise Exception(f"Письмо с вложением {Config.ATTACHMENT_FILENAME} не найдено")
+    if not email_dates:
+        raise Exception(f"Не удалось получить даты писем от {Config.EMAIL_FROM}")
     
     # Сортируем по дате (самое новое первым)
-    candidates.sort(key=lambda x: x[0], reverse=True)
+    email_dates.sort(key=lambda x: x[0], reverse=True)
+    print(f"Отсортировано писем по дате. Проверяю вложения, начиная с самых новых...")
     
-    latest_date, latest_msg, latest_id = candidates[0]
-    print(f"Найдено писем с вложением: {len(candidates)}")
-    print(f"Выбрано самое новое письмо (ID: {latest_id.decode()}, дата: {latest_date.strftime('%Y-%m-%d %H:%M:%S')})")
+    # Проверяем письма в порядке от новых к старым, останавливаемся при первом найденном
+    checked_count = 0
+    max_check = min(50, len(email_dates))  # Проверяем максимум 50 самых новых писем
     
-    return latest_msg
+    for date_obj, email_id in email_dates[:max_check]:
+        checked_count += 1
+        if checked_count % 10 == 0:
+            print(f"  Проверено {checked_count}/{max_check} писем...")
+        
+        try:
+            # Теперь загружаем полное письмо только для проверки вложения
+            status, msg_data = imap.fetch(email_id, '(RFC822)')
+            
+            if status != 'OK':
+                continue
+            
+            msg = email.message_from_bytes(msg_data[0][1])
+            
+            # Проверяем наличие вложения
+            has_attachment = False
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_disposition() == 'attachment':
+                        filename = decode_filename(part.get_filename())
+                        
+                        if filename == Config.ATTACHMENT_FILENAME:
+                            has_attachment = True
+                            break
+            
+            if has_attachment:
+                print(f"Найдено письмо с вложением (ID: {email_id.decode()}, дата: {date_obj.strftime('%Y-%m-%d %H:%M:%S')})")
+                print(f"Проверено писем: {checked_count}")
+                return msg
+                
+        except Exception as e:
+            # Пропускаем письма с ошибками и продолжаем поиск
+            continue
+    
+    raise Exception(f"Письмо с вложением {Config.ATTACHMENT_FILENAME} не найдено среди {checked_count} проверенных писем")
 
 
 def save_zip_attachment(msg: Message, download_dir: Path) -> Path:
