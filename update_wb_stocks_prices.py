@@ -256,7 +256,12 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
         examples = list(art_to_nmid.items())[:3]
         print(f"  Примеры: {examples}")
     
-    return art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, barcode_to_chrtid
+    print(f"\nЗагружено соответствий артикул_производителя->баркод (из колонки G): {len(manufacturer_art_to_barcode)}")
+    if len(manufacturer_art_to_barcode) > 0:
+        examples = list(manufacturer_art_to_barcode.items())[:3]
+        print(f"  Примеры: {examples}")
+    
+    return art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, manufacturer_art_to_barcode, barcode_to_chrtid
 
 
 def get_chrt_id_by_barcode(barcode: str, warehouse_id: int, stocks_cache: Optional[Dict[str, int]] = None) -> Optional[int]:
