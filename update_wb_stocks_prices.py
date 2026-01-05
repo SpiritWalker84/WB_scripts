@@ -245,6 +245,12 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
     
+    # Итоговая статистика
+    print(f"\nИтого соответствий артикул_производителя->nmID: {len(art_to_nmid)}")
+    if len(art_to_nmid) > 0:
+        examples = list(art_to_nmid.items())[:3]
+        print(f"  Примеры: {examples}")
+    
     return art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, barcode_to_chrtid
 
 
