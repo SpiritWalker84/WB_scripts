@@ -522,7 +522,7 @@ def main() -> None:
     
     # Читаем файлы соответствия
     print("\n2. Читаю файлы соответствия...")
-    art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, barcode_to_chrtid = read_mapping_files()
+    art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, manufacturer_art_to_barcode, barcode_to_chrtid = read_mapping_files()
     
     if not art_to_nmid and not barcode_to_nmid:
         print("⚠ Предупреждение: не найдено файлов соответствия")
@@ -629,23 +629,31 @@ def main() -> None:
                 # Используем предзагруженный кэш
                 stocks_cache = stocks_cache_by_warehouse.get(warehouse_id, {})
                 
-                # Получаем chrtId по баркоду из кэша или через API
-                chrt_id = None
-                if product['barcode']:
-                    chrt_id = get_chrt_id_by_barcode(product['barcode'], warehouse_id, stocks_cache)
+                # Получаем баркод для обновления остатков
+                # Сначала пробуем баркод из CSV, если его нет - получаем из файла соответствия (колонка G)
+                barcode_for_stock = product.get('barcode')
+                if not barcode_for_stock and product.get('manufacturer_art'):
+                    # Получаем баркод по артикулу производителя из файла "Баркоды.xlsx" (колонка G)
+                    manufacturer_art = str(product['manufacturer_art']).strip()
+                    manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
+                    barcode_for_stock = manufacturer_art_to_barcode.get(manufacturer_art_clean) or manufacturer_art_to_barcode.get(manufacturer_art)
                 
-                if chrt_id:
-                    all_stocks_data[warehouse_id].append({
-                        "chrtId": chrt_id,
-                        "sku": product['barcode'],
-                        "amount": product['amount']
-                    })
-                elif product['barcode']:
-                    # Если не удалось получить chrtId, пробуем использовать только sku
-                    all_stocks_data[warehouse_id].append({
-                        "sku": product['barcode'],
-                        "amount": product['amount']
-                    })
+                if barcode_for_stock:
+                    # Получаем chrtId по баркоду из кэша или через API
+                    chrt_id = get_chrt_id_by_barcode(barcode_for_stock, warehouse_id, stocks_cache)
+                    
+                    if chrt_id:
+                        all_stocks_data[warehouse_id].append({
+                            "chrtId": chrt_id,
+                            "sku": barcode_for_stock,
+                            "amount": product['amount']
+                        })
+                    else:
+                        # Если не удалось получить chrtId, пробуем использовать только sku
+                        all_stocks_data[warehouse_id].append({
+                            "sku": barcode_for_stock,
+                            "amount": product['amount']
+                        })
         
         print(f"  Обработано товаров: {len(products)}")
         print(f"  Найдено соответствий: {matched_count}")
