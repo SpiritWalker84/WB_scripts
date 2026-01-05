@@ -369,49 +369,35 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                 if price is None or amount is None:
                     continue
                 
-                # Ищем артикул продавца или баркод
-                # В файлах брендов структура может быть разной
-                # Нужно найти числовой артикул продавца (для сопоставления с файлом соответствия)
-                # и артикул производителя (который может совпадать с баркодом в файле соответствия)
-                
+                # Ищем артикул продавца и баркод
+                # В файлах брендов нужно найти числовой артикул продавца для сопоставления
                 seller_art = None
                 barcode = None
-                manufacturer_art = None  # Артикул производителя
                 
-                # Пробуем найти в разных колонках
-                # Колонка B (индекс 1) - обычно название или артикул производителя
-                if len(row) > 1 and row[1]:
-                    potential_id = str(row[1]).strip().replace('"', '').replace("'", '')
-                    # Пропускаем заголовки
-                    if potential_id.lower() not in ['артикул', 'артикул продавца', 'название', 'name', 'nan', '']:
-                        # Если это короткий артикул производителя (например F00BH40270)
-                        if len(potential_id) > 5 and len(potential_id) < 20 and potential_id.replace('-', '').replace('_', '').isalnum():
-                            manufacturer_art = potential_id
-                        # Если это длинный баркод (13+ цифр)
-                        elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
-                            barcode = potential_id
-                        # Иначе это может быть название/описание
-                        elif len(potential_id) > 20 or ',' in potential_id or '[' in potential_id:
-                            # Это описание, не артикул
-                            pass
-                        else:
-                            seller_art = potential_id
-                
-                # Колонка C (индекс 2) - может быть артикул производителя или баркод
-                if len(row) > 2 and row[2]:
-                    potential_id = str(row[2]).strip().replace('"', '').replace("'", '')
-                    # Пропускаем заголовки
-                    if potential_id.lower() not in ['баркод', 'barcode', 'артикул', 'art', 'nan', '']:
-                        # Если это артикул производителя (короткий, буквенно-цифровой)
-                        if len(potential_id) > 5 and len(potential_id) < 20 and potential_id.replace('-', '').replace('_', '').isalnum() and not manufacturer_art:
-                            manufacturer_art = potential_id
-                        # Если это длинный баркод
-                        elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit() and not barcode:
-                            barcode = potential_id
-                
-                # Сохраняем артикул производителя в поле barcode для дальнейшего использования
-                if manufacturer_art and not barcode:
-                    barcode = manufacturer_art
+                # Проверяем все колонки до колонки D (цена)
+                # Ищем числовой артикул продавца (для сопоставления с файлом соответствия)
+                for col_idx in range(min(3, len(row))):
+                    if col_idx >= len(row) or not row[col_idx]:
+                        continue
+                    
+                    potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '')
+                    
+                    # Пропускаем заголовки и пустые значения
+                    if potential_id.lower() in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '']:
+                        continue
+                    
+                    # Если это числовой артикул продавца (короткое число, обычно 1-6 цифр)
+                    if potential_id.isdigit() and len(potential_id) <= 10:
+                        seller_art = potential_id
+                        break
+                    # Если это длинный баркод (13+ цифр)
+                    elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
+                        barcode = potential_id
+                    # Если это артикул производителя (буквенно-цифровой, 5-20 символов)
+                    elif len(potential_id) >= 5 and len(potential_id) <= 20 and potential_id.replace('-', '').replace('_', '').isalnum():
+                        # Это может быть артикул производителя, но не используем его для сопоставления
+                        # так как в файлах соответствия нет такой колонки
+                        pass
                 
                 products.append({
                     'seller_art': seller_art,
