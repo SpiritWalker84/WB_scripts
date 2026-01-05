@@ -163,17 +163,22 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         
                         if nmid and barcode:
                             # Создаем соответствие артикул производителя -> nmID
+                            # Сохраняем все варианты: оригинальный, без пробелов, нормализованный
                             manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
-                            art_to_nmid[manufacturer_art_clean] = nmid
-                            art_to_nmid[manufacturer_art] = nmid  # Оригинальный вариант с пробелами
+                            manufacturer_art_normalized = manufacturer_art_clean.replace('-', '').replace('/', '').replace('_', '')
+                            
+                            art_to_nmid[manufacturer_art] = nmid  # Оригинальный вариант
+                            art_to_nmid[manufacturer_art_clean] = nmid  # Без пробелов
+                            art_to_nmid[manufacturer_art_normalized] = nmid  # Нормализованный
                             manufacturer_art_to_nmid[manufacturer_art_clean] = nmid
                             
                             # Создаем соответствие баркод -> nmID
                             barcode_to_nmid[barcode] = nmid
                             
                             # Создаем соответствие артикул производителя -> баркод
-                            manufacturer_art_to_barcode[manufacturer_art_clean] = barcode
-                            manufacturer_art_to_barcode[manufacturer_art] = barcode  # Оригинальный вариант с пробелами
+                            manufacturer_art_to_barcode[manufacturer_art] = barcode  # Оригинальный вариант
+                            manufacturer_art_to_barcode[manufacturer_art_clean] = barcode  # Без пробелов
+                            manufacturer_art_to_barcode[manufacturer_art_normalized] = barcode  # Нормализованный
                     except (ValueError, TypeError, KeyError, IndexError):
                         continue
                 
@@ -542,35 +547,34 @@ def main() -> None:
             })
             
             # Подготавливаем данные для обновления остатков
-            # Нужно получить chrtId для каждого склада
-            for warehouse in warehouses:
-                warehouse_id = warehouse.get('id')
-                
-                if warehouse_id not in all_stocks_data:
-                    all_stocks_data[warehouse_id] = []
-                
-                # Получаем баркод для обновления остатков из файла соответствия (колонка G)
-                # Баркод всегда берем из файла "Баркоды.xlsx", так как артикул уже проверен
-                barcode_for_stock = None
-                if manufacturer_art in manufacturer_art_to_barcode:
-                    barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art]
-                elif manufacturer_art_clean in manufacturer_art_to_barcode:
-                    barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art_clean]
-                else:
-                    # Пробуем нормализованный вариант
-                    for art_key, barcode_val in manufacturer_art_to_barcode.items():
-                        art_key_normalized = str(art_key).strip().replace(' ', '').upper().replace('-', '').replace('/', '').replace('_', '')
-                        if art_key_normalized == manufacturer_art_normalized:
-                            barcode_for_stock = barcode_val
-                            break
-                
-                if barcode_for_stock:
-                    # Используем только sku - API сам найдет chrtId по sku при обновлении остатков
-                    # Это соответствует логике из update_prices_stocks_wb.py
-                    all_stocks_data[warehouse_id].append({
-                        "sku": barcode_for_stock,
-                        "amount": product['amount']
-                    })
+            # Обновляем остатки только на складе 1619436
+            TARGET_WAREHOUSE_ID = 1619436
+            
+            if TARGET_WAREHOUSE_ID not in all_stocks_data:
+                all_stocks_data[TARGET_WAREHOUSE_ID] = []
+            
+            # Получаем баркод для обновления остатков из файла соответствия (колонка G)
+            # Баркод всегда берем из файла "Баркоды.xlsx", так как артикул уже проверен
+            barcode_for_stock = None
+            if manufacturer_art in manufacturer_art_to_barcode:
+                barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art]
+            elif manufacturer_art_clean in manufacturer_art_to_barcode:
+                barcode_for_stock = manufacturer_art_to_barcode[manufacturer_art_clean]
+            else:
+                # Пробуем нормализованный вариант
+                for art_key, barcode_val in manufacturer_art_to_barcode.items():
+                    art_key_normalized = str(art_key).strip().replace(' ', '').upper().replace('-', '').replace('/', '').replace('_', '')
+                    if art_key_normalized == manufacturer_art_normalized:
+                        barcode_for_stock = barcode_val
+                        break
+            
+            if barcode_for_stock:
+                # Используем только sku - API сам найдет chrtId по sku при обновлении остатков
+                # Это соответствует логике из update_prices_stocks_wb.py
+                all_stocks_data[TARGET_WAREHOUSE_ID].append({
+                    "sku": barcode_for_stock,
+                    "amount": product['amount']
+                })
         
         print(f"  Обработано товаров: {len(products)}")
         print(f"  Найдено соответствий: {matched_count}")
@@ -595,21 +599,26 @@ def main() -> None:
         print("Операция отменена.")
         return
     
-    # Обновляем остатки
+    # Обновляем остатки только на складе 1619436
     print("\n4. Обновляю остатки...")
-    for warehouse_id, stocks_data in all_stocks_data.items():
-        warehouse = next((w for w in warehouses if w.get('id') == warehouse_id), None)
+    TARGET_WAREHOUSE_ID = 1619436
+    
+    if TARGET_WAREHOUSE_ID in all_stocks_data:
+        stocks_data = all_stocks_data[TARGET_WAREHOUSE_ID]
+        warehouse = next((w for w in warehouses if w.get('id') == TARGET_WAREHOUSE_ID), None)
         warehouse_name = warehouse.get('name', 'Неизвестный склад') if warehouse else 'Неизвестный склад'
         
-        print(f"  Склад: {warehouse_name} (ID: {warehouse_id})")
+        print(f"  Склад: {warehouse_name} (ID: {TARGET_WAREHOUSE_ID})")
         
         # Разбиваем на батчи по 100
         batch_size = 100
         for i in range(0, len(stocks_data), batch_size):
             batch = stocks_data[i:i + batch_size]
             print(f"    Батч {i//batch_size + 1} ({len(batch)} товаров)...")
-            if update_stocks(warehouse_id, batch):
+            if update_stocks(TARGET_WAREHOUSE_ID, batch):
                 print(f"    ✓ Обновлено остатков: {len(batch)}")
+    else:
+        print(f"  ⚠ Нет данных для обновления остатков на складе {TARGET_WAREHOUSE_ID}")
     
     # Обновляем цены
     print("\n5. Обновляю цены...")
