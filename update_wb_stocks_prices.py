@@ -437,10 +437,22 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
     url = f"{Config.PRICES_API_URL}/upload/task"
     headers = get_headers()
     
-    payload = {"data": prices_data}
+    # Формируем данные в правильном формате (как в update_prices_stocks_wb.py)
+    data_items = []
+    for item in prices_data:
+        nmid = item.get("nmID") or item.get("nmId")
+        if nmid:
+            data_items.append({
+                "nmID": int(nmid),
+                "price": int(item["price"]),
+                "discount": int(item.get("discount", 0))
+            })
+    
+    payload = {"data": data_items}
     
     try:
-        response = requests.put(url, headers=headers, json=payload)
+        # API требует POST, а не PUT
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
