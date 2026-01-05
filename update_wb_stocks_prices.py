@@ -91,20 +91,22 @@ def get_warehouses() -> List[Dict[str, Any]]:
     return warehouses
 
 
-def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]:
     """
     Читает файлы соответствия артикулов и баркодов
     
     Returns:
-        Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]: 
+        Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]: 
             - Словарь {артикул_продавца: nmID}
             - Словарь {баркод: nmID}
+            - Словарь {артикул_производителя: nmID} (если есть)
             - Словарь {баркод: chrtId} (если доступен)
     """
     print("Чтение файлов соответствия...")
     
     art_to_nmid: Dict[str, str] = {}
     barcode_to_nmid: Dict[str, str] = {}
+    manufacturer_art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID
     barcode_to_chrtid: Dict[str, str] = {}
     
     # Ищем файл с артикулами
@@ -122,27 +124,36 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
             # Структура из clear_wb_stocks.py:
             # Колонка C (индекс 2) - nmID
             # Нужно найти колонку с артикулом продавца (обычно первая колонка)
+            # Выводим структуру файла для отладки
+            print(f"  Структура файла: {len(df_art.columns)} колонок")
+            print(f"  Названия колонок: {list(df_art.columns[:5])}")
+            
             if len(df_art.columns) >= 3:
-                # Ищем колонку с артикулом продавца
+                # Ищем колонку с артикулом продавца (обычно это числовая колонка или индекс)
                 art_col = None
+                
+                # Сначала ищем по названию
                 for col_name in df_art.columns:
                     col_lower = str(col_name).lower()
                     if 'артикул' in col_lower and 'продавца' in col_lower:
                         art_col = col_name
                         break
                 
-                # Если не нашли, пробуем найти по другим признакам
+                # Если не нашли, ищем числовую колонку (артикул продавца обычно числовой)
                 if not art_col:
                     for col_name in df_art.columns:
-                        col_lower = str(col_name).lower()
-                        if 'артикул' in col_lower or 'art' in col_lower:
-                            # Проверяем, что это не nmID (обычно nmID в колонке с "артикул wb" или числовая)
-                            if 'wb' not in col_lower and 'nmid' not in col_lower:
-                                art_col = col_name
-                                break
+                        # Пропускаем колонку с nmID
+                        if 'основная информация' in str(col_name).lower() or 'nmid' in str(col_name).lower():
+                            continue
+                        # Проверяем, что колонка содержит числа
+                        sample_val = df_art[col_name].iloc[0] if len(df_art) > 0 else None
+                        if sample_val and (isinstance(sample_val, (int, float)) or (isinstance(sample_val, str) and sample_val.strip().isdigit())):
+                            art_col = col_name
+                            break
                 
+                # Если все еще не нашли, используем первую колонку (обычно индекс или артикул)
                 if not art_col:
-                    art_col = df_art.columns[0]  # По умолчанию первая колонка
+                    art_col = df_art.columns[0]
                 
                 # Ищем колонку с nmID
                 nmid_col = None
@@ -177,6 +188,16 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                 else:
                     print("⚠ Не удалось определить колонку с nmID")
                 
+                # Ищем также колонку с артикулом производителя (может быть в других колонках)
+                manufacturer_col = None
+                for col_name in df_art.columns:
+                    col_lower = str(col_name).lower()
+                    if ('производитель' in col_lower and 'артикул' in col_lower) or \
+                       ('manufacturer' in col_lower and 'art' in col_lower) or \
+                       ('артикул производителя' in col_lower):
+                        manufacturer_col = col_name
+                        break
+                
                 for idx, row in df_art.iterrows():
                     try:
                         art = str(row[art_col]).strip()
@@ -190,6 +211,15 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         
                         if art and nmid and art != 'nan':
                             art_to_nmid[art] = nmid
+                        
+                        # Если есть колонка с артикулом производителя, добавляем её тоже
+                        if manufacturer_col:
+                            try:
+                                man_art = str(row[manufacturer_col]).strip()
+                                if man_art and man_art != 'nan' and not pd.isna(row[manufacturer_col]):
+                                    manufacturer_art_to_nmid[man_art] = nmid
+                            except (ValueError, TypeError, KeyError):
+                                pass
                     except (ValueError, TypeError, KeyError):
                         continue
                 
@@ -198,6 +228,9 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                     # Показываем первые примеры для проверки
                     examples = list(art_to_nmid.items())[:3]
                     print(f"  Примеры: {examples}")
+                if manufacturer_col:
+                    print(f"  Также найдена колонка с артикулом производителя: '{manufacturer_col}'")
+                    print(f"  Загружено соответствий артикул_производителя->nmID: {len(manufacturer_art_to_nmid)}")
         except Exception as e:
             print(f"Ошибка при чтении файла артикулов: {e}")
     
@@ -212,6 +245,10 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
         print(f"Читаю файл с баркодами: {barcode_file}")
         try:
             df_barcode = pd.read_excel(barcode_file, header=0)
+            
+            # Выводим структуру файла для отладки
+            print(f"  Структура файла: {len(df_barcode.columns)} колонок")
+            print(f"  Названия колонок: {list(df_barcode.columns[:8])}")
             
             # Структура из clear_wb_stocks.py:
             # Колонка G (индекс 6) - баркод
@@ -287,7 +324,7 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
     
-    return art_to_nmid, barcode_to_nmid, barcode_to_chrtid
+    return art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, barcode_to_chrtid
 
 
 def get_chrt_id_by_barcode(barcode: str, warehouse_id: int, stocks_cache: Optional[Dict[str, int]] = None) -> Optional[int]:
@@ -426,44 +463,48 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                     continue
                 
                 # Ищем артикул продавца или баркод
-                # Проверяем заголовок для понимания структуры
+                # В файлах брендов структура может быть разной
+                # Нужно найти числовой артикул продавца (для сопоставления с файлом соответствия)
+                # и артикул производителя (который может совпадать с баркодом в файле соответствия)
+                
                 seller_art = None
                 barcode = None
+                manufacturer_art = None  # Артикул производителя
                 
-                # Пробуем найти в колонке B (индекс 1)
+                # Пробуем найти в разных колонках
+                # Колонка B (индекс 1) - обычно название или артикул производителя
                 if len(row) > 1 and row[1]:
                     potential_id = str(row[1]).strip().replace('"', '').replace("'", '')
                     # Пропускаем заголовки
                     if potential_id.lower() not in ['артикул', 'артикул продавца', 'название', 'name', 'nan', '']:
-                        # Если похоже на баркод (длинная строка, только цифры/буквы)
-                        if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum():
+                        # Если это короткий артикул производителя (например F00BH40270)
+                        if len(potential_id) > 5 and len(potential_id) < 20 and potential_id.replace('-', '').replace('_', '').isalnum():
+                            manufacturer_art = potential_id
+                        # Если это длинный баркод (13+ цифр)
+                        elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
                             barcode = potential_id
+                        # Иначе это может быть название/описание
+                        elif len(potential_id) > 20 or ',' in potential_id or '[' in potential_id:
+                            # Это описание, не артикул
+                            pass
                         else:
                             seller_art = potential_id
                 
-                # Пробуем найти в колонке C (индекс 2)
+                # Колонка C (индекс 2) - может быть артикул производителя или баркод
                 if len(row) > 2 and row[2]:
                     potential_id = str(row[2]).strip().replace('"', '').replace("'", '')
                     # Пропускаем заголовки
                     if potential_id.lower() not in ['баркод', 'barcode', 'артикул', 'art', 'nan', '']:
-                        # Если похоже на баркод (длинная строка)
-                        if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum() and not barcode:
+                        # Если это артикул производителя (короткий, буквенно-цифровой)
+                        if len(potential_id) > 5 and len(potential_id) < 20 and potential_id.replace('-', '').replace('_', '').isalnum() and not manufacturer_art:
+                            manufacturer_art = potential_id
+                        # Если это длинный баркод
+                        elif len(potential_id) >= 13 and potential_id.replace('-', '').isdigit() and not barcode:
                             barcode = potential_id
-                        elif not seller_art and len(potential_id) > 0:
-                            seller_art = potential_id
                 
-                # Если не нашли в B и C, пробуем другие колонки (может быть в других местах)
-                if not seller_art and not barcode:
-                    # Пробуем найти в других колонках (до колонки D)
-                    for col_idx in range(min(3, len(row))):
-                        if col_idx < len(row) and row[col_idx]:
-                            potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '')
-                            if potential_id.lower() not in ['бренд', 'brand', 'название', 'name', 'nan', '']:
-                                if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum():
-                                    if not barcode:
-                                        barcode = potential_id
-                                elif not seller_art and len(potential_id) > 0:
-                                    seller_art = potential_id
+                # Сохраняем артикул производителя в поле barcode для дальнейшего использования
+                if manufacturer_art and not barcode:
+                    barcode = manufacturer_art
                 
                 products.append({
                     'seller_art': seller_art,
@@ -562,7 +603,7 @@ def main() -> None:
     
     # Читаем файлы соответствия
     print("\n2. Читаю файлы соответствия...")
-    art_to_nmid, barcode_to_nmid, barcode_to_chrtid = read_mapping_files()
+    art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, barcode_to_chrtid = read_mapping_files()
     
     if not art_to_nmid and not barcode_to_nmid:
         print("⚠ Предупреждение: не найдено файлов соответствия")
@@ -594,31 +635,47 @@ def main() -> None:
         for product in products:
             nmid = None
             
-            # Пытаемся найти nmID через артикул продавца
+            # Пытаемся найти nmID через артикул продавца (числовой)
             if product['seller_art']:
                 seller_art_clean = str(product['seller_art']).strip()
-                # Пробуем точное совпадение
-                if seller_art_clean in art_to_nmid:
-                    nmid = art_to_nmid[seller_art_clean]
-                else:
-                    # Пробуем найти с учетом возможных различий (пробелы, регистр)
-                    for art_key, art_nmid in art_to_nmid.items():
-                        if str(art_key).strip().lower() == seller_art_clean.lower():
-                            nmid = art_nmid
-                            break
+                # Проверяем, является ли это числом (артикул продавца обычно числовой)
+                if seller_art_clean.isdigit():
+                    # Пробуем точное совпадение
+                    if seller_art_clean in art_to_nmid:
+                        nmid = art_to_nmid[seller_art_clean]
+                    else:
+                        # Пробуем найти с учетом возможных различий (пробелы, регистр)
+                        for art_key, art_nmid in art_to_nmid.items():
+                            if str(art_key).strip().lower() == seller_art_clean.lower():
+                                nmid = art_nmid
+                                break
             
-            # Если не нашли, пробуем через баркод
+            # Если не нашли, пробуем через артикул производителя (из файла бренда это может быть "баркод")
             if not nmid and product['barcode']:
                 barcode_clean = str(product['barcode']).strip()
-                # Пробуем точное совпадение
-                if barcode_clean in barcode_to_nmid:
-                    nmid = barcode_to_nmid[barcode_clean]
-                else:
-                    # Пробуем найти с учетом возможных различий
-                    for barcode_key, barcode_nmid in barcode_to_nmid.items():
-                        if str(barcode_key).strip() == barcode_clean:
-                            nmid = barcode_nmid
-                            break
+                
+                # Сначала пробуем как артикул производителя (короткий, буквенно-цифровой)
+                if len(barcode_clean) < 20 and barcode_clean.replace('-', '').replace('_', '').isalnum():
+                    if barcode_clean in manufacturer_art_to_nmid:
+                        nmid = manufacturer_art_to_nmid[barcode_clean]
+                    else:
+                        # Пробуем найти с учетом возможных различий
+                        for man_art_key, man_art_nmid in manufacturer_art_to_nmid.items():
+                            if str(man_art_key).strip().upper() == barcode_clean.upper():
+                                nmid = man_art_nmid
+                                break
+                
+                # Если не нашли как артикул производителя, пробуем как баркод (длинный числовой)
+                if not nmid and len(barcode_clean) >= 13 and barcode_clean.replace('-', '').isdigit():
+                    # Пробуем точное совпадение
+                    if barcode_clean in barcode_to_nmid:
+                        nmid = barcode_to_nmid[barcode_clean]
+                    else:
+                        # Пробуем найти с учетом возможных различий
+                        for barcode_key, barcode_nmid in barcode_to_nmid.items():
+                            if str(barcode_key).strip() == barcode_clean:
+                                nmid = barcode_nmid
+                                break
             
             if not nmid:
                 unmatched_count += 1
