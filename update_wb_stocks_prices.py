@@ -485,14 +485,18 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
-        print(f"    ✗ Ошибка при обновлении цен: {e}")
+        # Проверяем, не является ли это ошибкой "already set"
         if hasattr(e, 'response') and e.response is not None:
             error_text = e.response.text
-            print(f"    Ответ сервера: {error_text}")
-            # Проверяем, не является ли это ошибкой "already set"
             if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
-                # Цены уже установлены - это нормально
+                # Цены уже установлены - это нормально, не считаем ошибкой
+                print(f"    ℹ Цены уже установлены (не требуют обновления)")
                 return True
+        
+        # Это настоящая ошибка
+        print(f"    ✗ Ошибка при обновлении цен: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"    Ответ сервера: {e.response.text}")
         return False
 
 
