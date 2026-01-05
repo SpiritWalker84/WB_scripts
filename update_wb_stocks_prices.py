@@ -386,37 +386,32 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                 if price is None or amount is None:
                     continue
                 
-                # Ищем артикул продавца и баркод
-                # Артикул продавца может быть буквенно-цифровым (например, T8307, EFM400, AG01007)
-                seller_art = None
+                # Ищем артикул производителя и баркод
+                # В CSV файлах колонка B (индекс 1) содержит артикул производителя (F00BH40270, AG 01007, CUK18000-2)
+                # Колонка C (индекс 2) содержит описание товара
+                manufacturer_art = None  # Артикул производителя из CSV
+                seller_art = None  # Артикул продавца (будет найден через соответствие)
                 barcode = None
                 
-                # Проверяем все колонки до колонки D (цена)
-                # Структура CSV: колонка A (0) - бренд, колонка B (1) - артикул/название, колонка C (2) - возможно баркод/артикул
-                for col_idx in range(min(3, len(row))):
-                    if col_idx >= len(row) or not row[col_idx]:
-                        continue
-                    
-                    potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '').replace(' ', '')
-                    
-                    # Пропускаем заголовки и пустые значения
-                    if potential_id.lower() in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '', 'none']:
-                        continue
-                    
+                # Колонка B (индекс 1) - это артикул производителя
+                if len(row) > 1 and row[1]:
+                    potential_manufacturer_art = str(row[1]).strip().replace('"', '').replace("'", '')
+                    # Пропускаем заголовки
+                    if (potential_manufacturer_art.lower() not in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '', 'none'] and
+                        len(potential_manufacturer_art) >= 2 and len(potential_manufacturer_art) <= 20):
+                        # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
+                        manufacturer_art = potential_manufacturer_art.replace(' ', '')
+                
+                # Проверяем колонку C (индекс 2) на наличие баркода (маловероятно, но проверим)
+                if len(row) > 2 and row[2]:
+                    potential_barcode = str(row[2]).strip().replace('"', '').replace("'", '').replace(' ', '').replace('-', '')
                     # Если это длинный баркод (13+ цифр) - EAN-13
-                    if len(potential_id) >= 13 and potential_id.replace('-', '').isdigit():
-                        barcode = potential_id.replace('-', '')
-                    # Если это артикул продавца (буквенно-цифровой, 2-20 символов, не похож на описание)
-                    elif len(potential_id) >= 2 and len(potential_id) <= 20:
-                        # Пропускаем если это похоже на описание (содержит запятые, скобки, длинное)
-                        if ',' not in potential_id and '[' not in potential_id and '(' not in potential_id:
-                            # Это может быть артикул продавца (например, T8307, EFM400, AG01007)
-                            if potential_id.replace('-', '').replace('_', '').isalnum():
-                                seller_art = potential_id
-                                # Не break, продолжаем искать баркод
+                    if len(potential_barcode) >= 13 and potential_barcode.isdigit():
+                        barcode = potential_barcode
                 
                 products.append({
-                    'seller_art': seller_art,
+                    'manufacturer_art': manufacturer_art,  # Артикул производителя из CSV
+                    'seller_art': seller_art,  # Артикул продавца (будет найден через соответствие)
                     'barcode': barcode,
                     'price': price,
                     'amount': amount,
@@ -429,7 +424,7 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
     if products:
         first_product = products[0]
         print(f"  Пример: цена={first_product['price']}, количество={first_product['amount']}")
-        print(f"    артикул={first_product.get('seller_art', 'не найден')}, баркод={first_product.get('barcode', 'не найден')}")
+        print(f"    артикул_производителя={first_product.get('manufacturer_art', 'не найден')}, артикул_продавца={first_product.get('seller_art', 'не найден')}, баркод={first_product.get('barcode', 'не найден')}")
         # Показываем первые несколько строк для отладки
         if len(products) > 0:
             print(f"  Отладка: первые 3 строки CSV:")
@@ -551,38 +546,25 @@ def main() -> None:
         for product in products:
             nmid = None
             
-            # Пытаемся найти nmID через артикул продавца (числовой)
-            if product['seller_art']:
-                seller_art_clean = str(product['seller_art']).strip()
-                # Проверяем, является ли это числом (артикул продавца обычно числовой)
-                if seller_art_clean.isdigit():
-                    # Пробуем точное совпадение
-                    if seller_art_clean in art_to_nmid:
-                        nmid = art_to_nmid[seller_art_clean]
-                    else:
-                        # Пробуем найти с учетом возможных различий (пробелы, регистр)
-                        for art_key, art_nmid in art_to_nmid.items():
-                            if str(art_key).strip().lower() == seller_art_clean.lower():
-                                nmid = art_nmid
-                                break
+            # Сначала пробуем найти nmID через артикул производителя (из CSV колонка B)
+            if product.get('manufacturer_art'):
+                manufacturer_art_clean = str(product['manufacturer_art']).strip().upper().replace(' ', '').replace('-', '')
+                # Пробуем точное совпадение
+                if manufacturer_art_clean in manufacturer_art_to_nmid:
+                    nmid = manufacturer_art_to_nmid[manufacturer_art_clean]
+                else:
+                    # Пробуем найти с учетом возможных различий (пробелы, регистр, дефисы)
+                    for man_art_key, man_art_nmid in manufacturer_art_to_nmid.items():
+                        man_art_key_clean = str(man_art_key).strip().upper().replace(' ', '').replace('-', '')
+                        if man_art_key_clean == manufacturer_art_clean:
+                            nmid = man_art_nmid
+                            break
             
-            # Если не нашли, пробуем через артикул производителя (из файла бренда это может быть "баркод")
-            if not nmid and product['barcode']:
-                barcode_clean = str(product['barcode']).strip()
-                
-                # Сначала пробуем как артикул производителя (короткий, буквенно-цифровой)
-                if len(barcode_clean) < 20 and barcode_clean.replace('-', '').replace('_', '').isalnum():
-                    if barcode_clean in manufacturer_art_to_nmid:
-                        nmid = manufacturer_art_to_nmid[barcode_clean]
-                    else:
-                        # Пробуем найти с учетом возможных различий
-                        for man_art_key, man_art_nmid in manufacturer_art_to_nmid.items():
-                            if str(man_art_key).strip().upper() == barcode_clean.upper():
-                                nmid = man_art_nmid
-                                break
-                
-                # Если не нашли как артикул производителя, пробуем как баркод (длинный числовой)
-                if not nmid and len(barcode_clean) >= 13 and barcode_clean.replace('-', '').isdigit():
+            # Если не нашли через артикул производителя, пробуем через баркод
+            if not nmid and product.get('barcode'):
+                barcode_clean = str(product['barcode']).strip().replace('-', '')
+                # Пробуем как баркод (длинный числовой, 13+ цифр)
+                if len(barcode_clean) >= 13 and barcode_clean.isdigit():
                     # Пробуем точное совпадение
                     if barcode_clean in barcode_to_nmid:
                         nmid = barcode_to_nmid[barcode_clean]
@@ -593,11 +575,23 @@ def main() -> None:
                                 nmid = barcode_nmid
                                 break
             
+            # Если не нашли, пробуем через артикул продавца (числовой)
+            if not nmid and product.get('seller_art'):
+                seller_art_clean = str(product['seller_art']).strip()
+                if seller_art_clean.isdigit():
+                    if seller_art_clean in art_to_nmid:
+                        nmid = art_to_nmid[seller_art_clean]
+                    else:
+                        for art_key, art_nmid in art_to_nmid.items():
+                            if str(art_key).strip().lower() == seller_art_clean.lower():
+                                nmid = art_nmid
+                                break
+            
             if not nmid:
                 unmatched_count += 1
                 # Выводим первые несколько примеров несовпадений для отладки
                 if unmatched_count <= 3:
-                    print(f"    ⚠ Не найдено соответствие: артикул={product.get('seller_art')}, баркод={product.get('barcode')}")
+                    print(f"    ⚠ Не найдено соответствие: артикул_производителя={product.get('manufacturer_art')}, артикул_продавца={product.get('seller_art')}, баркод={product.get('barcode')}")
                 continue
             
             matched_count += 1
