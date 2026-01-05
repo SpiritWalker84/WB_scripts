@@ -194,6 +194,10 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         continue
                 
                 print(f"Загружено соответствий артикул->nmID: {len(art_to_nmid)}")
+                if len(art_to_nmid) > 0:
+                    # Показываем первые примеры для проверки
+                    examples = list(art_to_nmid.items())[:3]
+                    print(f"  Примеры: {examples}")
         except Exception as e:
             print(f"Ошибка при чтении файла артикулов: {e}")
     
@@ -276,6 +280,10 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         continue
                 
                 print(f"Загружено соответствий баркод->nmID: {len(barcode_to_nmid)}")
+                if len(barcode_to_nmid) > 0:
+                    # Показываем первые примеры для проверки
+                    examples = list(barcode_to_nmid.items())[:3]
+                    print(f"  Примеры: {examples}")
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
     
@@ -469,7 +477,9 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
     
     print(f"  Найдено товаров: {len(products)}")
     if products:
-        print(f"  Пример: цена={products[0]['price']}, количество={products[0]['amount']}")
+        first_product = products[0]
+        print(f"  Пример: цена={first_product['price']}, количество={first_product['amount']}")
+        print(f"    артикул={first_product.get('seller_art', 'не найден')}, баркод={first_product.get('barcode', 'не найден')}")
     return products
 
 
