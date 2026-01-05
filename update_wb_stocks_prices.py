@@ -188,16 +188,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                 else:
                     print("⚠ Не удалось определить колонку с nmID")
                 
-                # Ищем также колонку с артикулом производителя (может быть в других колонках)
-                manufacturer_col = None
-                for col_name in df_art.columns:
-                    col_lower = str(col_name).lower()
-                    if ('производитель' in col_lower and 'артикул' in col_lower) or \
-                       ('manufacturer' in col_lower and 'art' in col_lower) or \
-                       ('артикул производителя' in col_lower):
-                        manufacturer_col = col_name
-                        break
-                
                 for idx, row in df_art.iterrows():
                     try:
                         art = str(row[art_col]).strip()
@@ -211,15 +201,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         
                         if art and nmid and art != 'nan':
                             art_to_nmid[art] = nmid
-                        
-                        # Если есть колонка с артикулом производителя, добавляем её тоже
-                        if manufacturer_col:
-                            try:
-                                man_art = str(row[manufacturer_col]).strip()
-                                if man_art and man_art != 'nan' and not pd.isna(row[manufacturer_col]):
-                                    manufacturer_art_to_nmid[man_art] = nmid
-                            except (ValueError, TypeError, KeyError):
-                                pass
                     except (ValueError, TypeError, KeyError):
                         continue
                 
@@ -244,74 +225,56 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     if barcode_file:
         print(f"Читаю файл с баркодами: {barcode_file}")
         try:
-            df_barcode = pd.read_excel(barcode_file, header=0)
+            # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки, индекс 4)
+            df_barcode = pd.read_excel(barcode_file, header=0, skiprows=4)
             
-            # Выводим структуру файла для отладки
-            print(f"  Структура файла: {len(df_barcode.columns)} колонок")
-            print(f"  Названия колонок: {list(df_barcode.columns[:8])}")
-            
-            # Структура из clear_wb_stocks.py:
+            # Структура:
+            # Колонка B (индекс 1) - артикул продавца
             # Колонка G (индекс 6) - баркод
-            # Колонка C (индекс 2) - nmID (предположение)
             if len(df_barcode.columns) >= 7:
-                # Ищем колонку с баркодом
-                barcode_col = None
-                for col_name in df_barcode.columns:
-                    col_lower = str(col_name).lower()
-                    if 'баркод' in col_lower or 'barcode' in col_lower:
-                        barcode_col = col_name
-                        break
+                art_col_barcode = df_barcode.columns[1]  # Колонка B - артикул продавца
+                barcode_col = df_barcode.columns[6]  # Колонка G - баркод
                 
-                if not barcode_col:
-                    barcode_col = df_barcode.columns[6]  # Fallback на колонку G
+                print(f"Использую колонку '{art_col_barcode}' (B) для артикула продавца")
+                print(f"Использую колонку '{barcode_col}' (G) для баркода")
                 
-                # Ищем колонку с nmID
+                # Для баркодов nmID нужно получить из файла артикулов через артикул продавца
+                # Или найти колонку с nmID в файле баркодов
                 nmid_col = None
-                for col_name in df_barcode.columns:
-                    col_lower = str(col_name).lower()
-                    if 'nmid' in col_lower or ('артикул' in col_lower and 'wb' in col_lower):
-                        nmid_col = col_name
-                        break
+                # Пробуем найти колонку с nmID (может быть в колонке C)
+                if len(df_barcode.columns) > 2:
+                    # Проверяем колонку C на наличие nmID
+                    sample_val = df_barcode.iloc[0, 2] if len(df_barcode) > 0 else None
+                    if sample_val and (isinstance(sample_val, (int, float)) or (isinstance(sample_val, str) and sample_val.strip().isdigit())):
+                        nmid_col = df_barcode.columns[2]
                 
-                # Если не нашли, пробуем колонку C (индекс 2) или ищем числовую колонку
-                if not nmid_col:
-                    if len(df_barcode.columns) > 2:
-                        # Проверяем колонку C
-                        sample_val = df_barcode.iloc[0, 2] if len(df_barcode) > 0 else None
-                        if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
-                            nmid_col = df_barcode.columns[2]
-                        else:
-                            # Ищем первую числовую колонку (кроме баркода)
-                            for col_name in df_barcode.columns:
-                                if col_name == barcode_col:
-                                    continue
-                                sample_val = df_barcode[col_name].iloc[0] if len(df_barcode) > 0 else None
-                                if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
-                                    nmid_col = col_name
-                                    break
-                
-                if not nmid_col and len(df_barcode.columns) > 2:
-                    nmid_col = df_barcode.columns[2]  # Fallback на колонку C
-                
-                print(f"Использую колонку '{barcode_col}' для баркода")
                 if nmid_col:
-                    print(f"Использую колонку '{nmid_col}' для nmID")
+                    print(f"Использую колонку '{nmid_col}' (C) для nmID")
                 else:
-                    print("⚠ Не удалось определить колонку с nmID")
+                    print("⚠ nmID будет получен через артикул продавца из файла артикулов")
                 
                 for idx, row in df_barcode.iterrows():
                     try:
                         barcode = str(row[barcode_col]).strip()
+                        art_seller = str(row[art_col_barcode]).strip() if len(row) > 1 else None
                         
-                        # Пропускаем заголовки
+                        # Пропускаем заголовки и пустые значения
                         if barcode.lower() in ['баркод', 'barcode', 'баркод в системе', 'nan', ''] or len(barcode) <= 5:
                             continue
                         
+                        nmid = None
+                        
+                        # Если есть колонка с nmID в файле баркодов
                         if nmid_col:
                             nmid_val = row[nmid_col]
-                            if pd.isna(nmid_val):
-                                continue
-                            nmid = str(int(float(nmid_val))).strip()
+                            if not pd.isna(nmid_val):
+                                nmid = str(int(float(nmid_val))).strip()
+                        
+                        # Если nmID не найден, пробуем получить через артикул продавца из файла артикулов
+                        if not nmid and art_seller and art_seller in art_to_nmid:
+                            nmid = art_to_nmid[art_seller]
+                        
+                        if nmid:
                             barcode_to_nmid[barcode] = nmid
                     except (ValueError, TypeError, KeyError):
                         continue
