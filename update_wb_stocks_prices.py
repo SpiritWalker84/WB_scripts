@@ -107,6 +107,7 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     art_to_nmid: Dict[str, str] = {}
     barcode_to_nmid: Dict[str, str] = {}
     manufacturer_art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID
+    manufacturer_art_to_barcode: Dict[str, str] = {}  # Артикул производителя -> баркод (из колонки G)
     barcode_to_chrtid: Dict[str, str] = {}
     
     # Ищем файл с артикулами
@@ -222,13 +223,17 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         # Но в файле артикулов нет артикула производителя, только артикул продавца
                         # Поэтому используем только nmID из файла баркодов
                         
-                        if nmid:
+                        if nmid and barcode:
                             barcode_to_nmid[barcode] = nmid
                             
                             # Создаем соответствие артикул производителя -> nmID
                             # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
                             manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
                             manufacturer_art_to_nmid[manufacturer_art_clean] = nmid
+                            
+                            # Создаем соответствие артикул производителя -> баркод (важно для обновления остатков!)
+                            manufacturer_art_to_barcode[manufacturer_art_clean] = barcode
+                            manufacturer_art_to_barcode[manufacturer_art] = barcode  # Оригинальный вариант с пробелами
                             
                             # Также добавляем в art_to_nmid для единого словаря соответствий
                             # Это дополняет данные из файла "Артикулы.xlsx"
