@@ -153,9 +153,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                     # Показываем первые примеры для проверки
                     examples = list(art_to_nmid.items())[:3]
                     print(f"  Примеры: {examples}")
-                if manufacturer_col:
-                    print(f"  Также найдена колонка с артикулом производителя: '{manufacturer_col}'")
-                    print(f"  Загружено соответствий артикул_производителя->nmID: {len(manufacturer_art_to_nmid)}")
         except Exception as e:
             print(f"Ошибка при чтении файла артикулов: {e}")
     
