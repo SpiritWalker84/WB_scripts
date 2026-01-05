@@ -119,74 +119,18 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     if art_file:
         print(f"Читаю файл с артикулами: {art_file}")
         try:
-            df_art = pd.read_excel(art_file, header=0)
+            # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки, индекс 4)
+            df_art = pd.read_excel(art_file, header=0, skiprows=4)
             
-            # Структура из clear_wb_stocks.py:
-            # Колонка C (индекс 2) - nmID
-            # Нужно найти колонку с артикулом продавца (обычно первая колонка)
-            # Выводим структуру файла для отладки
-            print(f"  Структура файла: {len(df_art.columns)} колонок")
-            print(f"  Названия колонок: {list(df_art.columns[:5])}")
-            
+            # Структура:
+            # Колонка B (индекс 1) - артикул продавца
+            # Колонка C (индекс 2) - nmID (артикул WB)
             if len(df_art.columns) >= 3:
-                # Ищем колонку с артикулом продавца (обычно это числовая колонка или индекс)
-                art_col = None
+                art_col = df_art.columns[1]  # Колонка B
+                nmid_col = df_art.columns[2]  # Колонка C
                 
-                # Сначала ищем по названию
-                for col_name in df_art.columns:
-                    col_lower = str(col_name).lower()
-                    if 'артикул' in col_lower and 'продавца' in col_lower:
-                        art_col = col_name
-                        break
-                
-                # Если не нашли, ищем числовую колонку (артикул продавца обычно числовой)
-                if not art_col:
-                    for col_name in df_art.columns:
-                        # Пропускаем колонку с nmID
-                        if 'основная информация' in str(col_name).lower() or 'nmid' in str(col_name).lower():
-                            continue
-                        # Проверяем, что колонка содержит числа
-                        sample_val = df_art[col_name].iloc[0] if len(df_art) > 0 else None
-                        if sample_val and (isinstance(sample_val, (int, float)) or (isinstance(sample_val, str) and sample_val.strip().isdigit())):
-                            art_col = col_name
-                            break
-                
-                # Если все еще не нашли, используем первую колонку (обычно индекс или артикул)
-                if not art_col:
-                    art_col = df_art.columns[0]
-                
-                # Ищем колонку с nmID
-                nmid_col = None
-                for col_name in df_art.columns:
-                    col_lower = str(col_name).lower()
-                    if 'nmid' in col_lower or ('артикул' in col_lower and 'wb' in col_lower):
-                        nmid_col = col_name
-                        break
-                
-                # Если не нашли, пробуем колонку C (индекс 2) или ищем числовую колонку
-                if not nmid_col:
-                    if len(df_art.columns) > 2:
-                        # Проверяем колонку C
-                        sample_val = df_art.iloc[0, 2] if len(df_art) > 0 else None
-                        if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
-                            nmid_col = df_art.columns[2]
-                        else:
-                            # Ищем первую числовую колонку
-                            for col_name in df_art.columns:
-                                sample_val = df_art[col_name].iloc[0] if len(df_art) > 0 else None
-                                if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
-                                    if col_name != art_col:
-                                        nmid_col = col_name
-                                        break
-                
-                if not nmid_col and len(df_art.columns) > 2:
-                    nmid_col = df_art.columns[2]  # Fallback на колонку C
-                
-                print(f"Использую колонку '{art_col}' для артикула продавца")
-                if nmid_col:
-                    print(f"Использую колонку '{nmid_col}' для nmID")
-                else:
-                    print("⚠ Не удалось определить колонку с nmID")
+                print(f"Использую колонку '{art_col}' (B) для артикула продавца")
+                print(f"Использую колонку '{nmid_col}' (C) для nmID")
                 
                 for idx, row in df_art.iterrows():
                     try:
