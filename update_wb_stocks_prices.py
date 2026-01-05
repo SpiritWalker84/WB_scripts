@@ -91,7 +91,7 @@ def get_warehouses() -> List[Dict[str, Any]]:
     return warehouses
 
 
-def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]:
+def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]:
     """
     Читает файлы соответствия артикулов и баркодов
     
@@ -194,6 +194,10 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                 else:
                     print("⚠ nmID будет получен через артикул продавца из файла артикулов")
                 
+                # Также создаем соответствие артикул производителя -> nmID через баркод
+                # В CSV файлах колонка B содержит артикул производителя, а не артикул продавца
+                manufacturer_art_to_barcode: Dict[str, str] = {}  # Артикул производителя -> баркод
+                
                 for idx, row in df_barcode.iterrows():
                     try:
                         barcode = str(row[barcode_col]).strip()
@@ -217,6 +221,22 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         
                         if nmid:
                             barcode_to_nmid[barcode] = nmid
+                            
+                            # Пробуем найти артикул производителя в других колонках файла баркодов
+                            # Ищем в колонках D, E, F (индексы 3, 4, 5)
+                            for col_idx in [3, 4, 5]:
+                                if col_idx < len(row):
+                                    potential_manufacturer_art = str(row.iloc[col_idx]).strip()
+                                    # Если это похоже на артикул производителя (буквенно-цифровой, 5-20 символов)
+                                    if (potential_manufacturer_art and 
+                                        len(potential_manufacturer_art) >= 5 and 
+                                        len(potential_manufacturer_art) <= 20 and
+                                        potential_manufacturer_art.replace('-', '').replace('_', '').isalnum() and
+                                        potential_manufacturer_art.lower() not in ['nan', '']):
+                                        # Создаем соответствие артикул производителя -> nmID через баркод
+                                        manufacturer_art_to_barcode[potential_manufacturer_art] = barcode
+                                        manufacturer_art_to_nmid[potential_manufacturer_art] = nmid
+                                        break
                     except (ValueError, TypeError, KeyError):
                         continue
                 
