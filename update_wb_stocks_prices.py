@@ -245,7 +245,7 @@ def get_chrt_id_by_barcode(barcode: str, warehouse_id: int, stocks_cache: Option
     params = {"sku": barcode}
     
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         stocks = response.json()
         
@@ -254,8 +254,12 @@ def get_chrt_id_by_barcode(barcode: str, warehouse_id: int, stocks_cache: Option
             if chrt_id and stocks_cache is not None:
                 stocks_cache[barcode] = chrt_id
             return chrt_id
-    except requests.exceptions.RequestException:
-        pass
+    except requests.exceptions.Timeout:
+        print(f"    ⚠ Таймаут при получении chrtId для баркода {barcode}")
+    except requests.exceptions.RequestException as e:
+        print(f"    ⚠ Ошибка при получении chrtId для баркода {barcode}: {e}")
+    except Exception as e:
+        print(f"    ⚠ Неожиданная ошибка при получении chrtId для баркода {barcode}: {e}")
     
     return None
 
@@ -519,58 +523,40 @@ def main() -> None:
         for product in products:
             nmid = None
             
-            # Сначала пробуем найти nmID через артикул производителя (из CSV колонка B)
-            # Логика как в update_prices_stocks_wb.py: артикул из CSV сопоставляется с art_to_nmid
-            if product.get('manufacturer_art'):
-                manufacturer_art = str(product['manufacturer_art']).strip()
-                # Пробуем точное совпадение (с пробелами и без)
-                if manufacturer_art in art_to_nmid:
-                    nmid = art_to_nmid[manufacturer_art]
-                else:
-                    # Пробуем без пробелов и в верхнем регистре
-                    manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
-                    if manufacturer_art_clean in art_to_nmid:
-                        nmid = art_to_nmid[manufacturer_art_clean]
-                    else:
-                        # Пробуем найти с учетом возможных различий
-                        for art_key, art_nmid in art_to_nmid.items():
-                            art_key_clean = str(art_key).strip().replace(' ', '').upper()
-                            if art_key_clean == manufacturer_art_clean:
-                                nmid = art_nmid
-                                break
-            
-            # Если не нашли через артикул производителя, пробуем через баркод
-            if not nmid and product.get('barcode'):
-                barcode_clean = str(product['barcode']).strip().replace('-', '')
-                # Пробуем как баркод (длинный числовой, 13+ цифр)
-                if len(barcode_clean) >= 13 and barcode_clean.isdigit():
-                    # Пробуем точное совпадение
-                    if barcode_clean in barcode_to_nmid:
-                        nmid = barcode_to_nmid[barcode_clean]
-                    else:
-                        # Пробуем найти с учетом возможных различий
-                        for barcode_key, barcode_nmid in barcode_to_nmid.items():
-                            if str(barcode_key).strip() == barcode_clean:
-                                nmid = barcode_nmid
-                                break
-            
-            # Если не нашли, пробуем через артикул продавца (числовой)
-            if not nmid and product.get('seller_art'):
-                seller_art_clean = str(product['seller_art']).strip()
-                if seller_art_clean.isdigit():
-                    if seller_art_clean in art_to_nmid:
-                        nmid = art_to_nmid[seller_art_clean]
-                    else:
-                        for art_key, art_nmid in art_to_nmid.items():
-                            if str(art_key).strip().lower() == seller_art_clean.lower():
-                                nmid = art_nmid
-                                break
-            
-            if not nmid:
+            # Проверяем только артикулы, которые есть в файле "Баркоды.xlsx"
+            # Если артикула нет в файле соответствия, пропускаем товар
+            if not product.get('manufacturer_art'):
                 unmatched_count += 1
-                # Выводим первые несколько примеров несовпадений для отладки
-                if unmatched_count <= 3:
-                    print(f"    ⚠ Не найдено соответствие: артикул_производителя={product.get('manufacturer_art')}, артикул_продавца={product.get('seller_art')}, баркод={product.get('barcode')}")
+                continue
+            
+            manufacturer_art = str(product['manufacturer_art']).strip()
+            manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
+            manufacturer_art_normalized = manufacturer_art_clean.replace('-', '').replace('/', '').replace('_', '')
+            
+            # Проверяем, есть ли артикул в файле соответствия
+            art_found = False
+            if manufacturer_art in art_to_nmid:
+                nmid = art_to_nmid[manufacturer_art]
+                art_found = True
+            elif manufacturer_art_clean in art_to_nmid:
+                nmid = art_to_nmid[manufacturer_art_clean]
+                art_found = True
+            else:
+                # Пробуем найти с учетом нормализации (убираем дефисы, слэши и т.д.)
+                for art_key, art_nmid in art_to_nmid.items():
+                    art_key_normalized = str(art_key).strip().replace(' ', '').upper().replace('-', '').replace('/', '').replace('_', '')
+                    if art_key_normalized == manufacturer_art_normalized:
+                        nmid = art_nmid
+                        art_found = True
+                        break
+            
+            # Если артикул не найден в файле соответствия, пропускаем товар
+            # (это означает, что карточка еще не создана на WB)
+            if not art_found:
+                unmatched_count += 1
+                # Выводим первые несколько примеров для информации
+                if unmatched_count <= 5:
+                    print(f"    ⚠ Пропущен (нет в файле соответствия): артикул={manufacturer_art}")
                 continue
             
             matched_count += 1
