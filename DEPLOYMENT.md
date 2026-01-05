@@ -39,7 +39,18 @@ python3 check_setup_price.py
 ### 4. Первый запуск
 
 ```bash
+# Сделайте скрипт исполняемым
+chmod +x run_full_update.sh
+
+# Запустите (автоматически создаст и активирует venv)
+./run_full_update.sh
+```
+
+Или вручную:
+```bash
+source venv/bin/activate
 python3 run_full_update.py
+deactivate
 ```
 
 ## Настройка автоматического запуска

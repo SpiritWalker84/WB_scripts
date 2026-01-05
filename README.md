@@ -91,7 +91,16 @@ WB_API_TOKEN=your_wb_api_token
 ### Полный цикл обновления (рекомендуется)
 
 ```bash
+# Автоматически использует venv (создаст при необходимости)
+chmod +x run_full_update.sh
+./run_full_update.sh
+```
+
+Или вручную:
+```bash
+source venv/bin/activate
 python3 run_full_update.py
+deactivate
 ```
 
 Этот скрипт выполнит последовательно:
@@ -104,20 +113,25 @@ python3 run_full_update.py
 #### 1. Удаление остатков
 
 ```bash
-python3 clear_wb_stocks.py
+chmod +x run_clear_stocks.sh
+./run_clear_stocks.sh
 ```
 
 #### 2. Загрузка прайсов
 
 ```bash
-python3 download_price.py
+chmod +x run_download_price.sh
+./run_download_price.sh
 ```
 
 #### 3. Обновление цен и остатков
 
 ```bash
-python3 update_wb_stocks_prices.py
+chmod +x run_update_stocks_prices.sh
+./run_update_stocks_prices.sh
 ```
+
+**Примечание:** Все скрипты `.sh` автоматически создают и активируют виртуальное окружение при необходимости.
 
 ### Проверка готовности системы
 
