@@ -131,13 +131,51 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         art_col = col_name
                         break
                 
+                # Если не нашли, пробуем найти по другим признакам
+                if not art_col:
+                    for col_name in df_art.columns:
+                        col_lower = str(col_name).lower()
+                        if 'артикул' in col_lower or 'art' in col_lower:
+                            # Проверяем, что это не nmID (обычно nmID в колонке с "артикул wb" или числовая)
+                            if 'wb' not in col_lower and 'nmid' not in col_lower:
+                                art_col = col_name
+                                break
+                
                 if not art_col:
                     art_col = df_art.columns[0]  # По умолчанию первая колонка
                 
-                nmid_col = df_art.columns[2]  # Колонка C
+                # Ищем колонку с nmID
+                nmid_col = None
+                for col_name in df_art.columns:
+                    col_lower = str(col_name).lower()
+                    if 'nmid' in col_lower or ('артикул' in col_lower and 'wb' in col_lower):
+                        nmid_col = col_name
+                        break
+                
+                # Если не нашли, пробуем колонку C (индекс 2) или ищем числовую колонку
+                if not nmid_col:
+                    if len(df_art.columns) > 2:
+                        # Проверяем колонку C
+                        sample_val = df_art.iloc[0, 2] if len(df_art) > 0 else None
+                        if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
+                            nmid_col = df_art.columns[2]
+                        else:
+                            # Ищем первую числовую колонку
+                            for col_name in df_art.columns:
+                                sample_val = df_art[col_name].iloc[0] if len(df_art) > 0 else None
+                                if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
+                                    if col_name != art_col:
+                                        nmid_col = col_name
+                                        break
+                
+                if not nmid_col and len(df_art.columns) > 2:
+                    nmid_col = df_art.columns[2]  # Fallback на колонку C
                 
                 print(f"Использую колонку '{art_col}' для артикула продавца")
-                print(f"Использую колонку '{nmid_col}' для nmID")
+                if nmid_col:
+                    print(f"Использую колонку '{nmid_col}' для nmID")
+                else:
+                    print("⚠ Не удалось определить колонку с nmID")
                 
                 for idx, row in df_art.iterrows():
                     try:
@@ -175,7 +213,16 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
             # Колонка G (индекс 6) - баркод
             # Колонка C (индекс 2) - nmID (предположение)
             if len(df_barcode.columns) >= 7:
-                barcode_col = df_barcode.columns[6]  # Колонка G
+                # Ищем колонку с баркодом
+                barcode_col = None
+                for col_name in df_barcode.columns:
+                    col_lower = str(col_name).lower()
+                    if 'баркод' in col_lower or 'barcode' in col_lower:
+                        barcode_col = col_name
+                        break
+                
+                if not barcode_col:
+                    barcode_col = df_barcode.columns[6]  # Fallback на колонку G
                 
                 # Ищем колонку с nmID
                 nmid_col = None
@@ -185,12 +232,31 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                         nmid_col = col_name
                         break
                 
+                # Если не нашли, пробуем колонку C (индекс 2) или ищем числовую колонку
+                if not nmid_col:
+                    if len(df_barcode.columns) > 2:
+                        # Проверяем колонку C
+                        sample_val = df_barcode.iloc[0, 2] if len(df_barcode) > 0 else None
+                        if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
+                            nmid_col = df_barcode.columns[2]
+                        else:
+                            # Ищем первую числовую колонку (кроме баркода)
+                            for col_name in df_barcode.columns:
+                                if col_name == barcode_col:
+                                    continue
+                                sample_val = df_barcode[col_name].iloc[0] if len(df_barcode) > 0 else None
+                                if sample_val and (isinstance(sample_val, (int, float)) or str(sample_val).isdigit()):
+                                    nmid_col = col_name
+                                    break
+                
                 if not nmid_col and len(df_barcode.columns) > 2:
-                    nmid_col = df_barcode.columns[2]  # Колонка C
+                    nmid_col = df_barcode.columns[2]  # Fallback на колонку C
                 
                 print(f"Использую колонку '{barcode_col}' для баркода")
                 if nmid_col:
                     print(f"Использую колонку '{nmid_col}' для nmID")
+                else:
+                    print("⚠ Не удалось определить колонку с nmID")
                 
                 for idx, row in df_barcode.iterrows():
                     try:
@@ -256,31 +322,18 @@ def get_all_stocks(warehouse_id: int) -> Dict[str, int]:
     """
     Получить все остатки со склада и создать кэш {barcode: chrtId}
     
+    Примечание: API может не поддерживать получение всех остатков сразу,
+    поэтому возвращаем пустой кэш и будем получать chrtId по требованию.
+    
     Args:
         warehouse_id: ID склада
         
     Returns:
-        Dict[str, int]: Словарь {barcode: chrtId}
+        Dict[str, int]: Словарь {barcode: chrtId} (обычно пустой)
     """
-    url = f"{Config.STOCKS_API_URL}/stocks/{warehouse_id}"
-    headers = get_headers()
-    
-    cache: Dict[str, int] = {}
-    
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        stocks = response.json()
-        
-        for stock in stocks:
-            sku = stock.get('sku')
-            chrt_id = stock.get('chrtId')
-            if sku and chrt_id:
-                cache[sku] = chrt_id
-    except requests.exceptions.RequestException as e:
-        print(f"    ⚠ Не удалось загрузить все остатки: {e}")
-    
-    return cache
+    # API не поддерживает GET /stocks/{warehouse_id} без параметров
+    # Будем получать chrtId по требованию через параметр sku
+    return {}
 
 
 def read_brand_file(brand: str) -> List[Dict[str, Any]]:
@@ -492,13 +545,12 @@ def main() -> None:
     all_prices_data: List[Dict[str, Any]] = []
     stocks_cache_by_warehouse: Dict[int, Dict[str, int]] = {}  # {warehouse_id: {barcode: chrtId}}
     
-    # Предзагружаем кэш остатков для всех складов
-    print("  Предзагрузка остатков со складов...")
+    # Инициализируем кэш остатков (будем заполнять по требованию)
+    print("  Инициализация кэша остатков...")
     for warehouse in warehouses:
         warehouse_id = warehouse.get('id')
-        cache = get_all_stocks(warehouse_id)
-        stocks_cache_by_warehouse[warehouse_id] = cache
-        print(f"    Склад {warehouse_id}: загружено {len(cache)} остатков")
+        stocks_cache_by_warehouse[warehouse_id] = {}
+        print(f"    Склад {warehouse_id}: кэш готов (будет заполняться по требованию)")
     
     for brand in Config.BRANDS:
         print(f"\nБренд: {brand}")
