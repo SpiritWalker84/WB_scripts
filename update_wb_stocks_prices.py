@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import csv
 import re
+import time
 from datetime import datetime
 
 # Загружаем переменные окружения
