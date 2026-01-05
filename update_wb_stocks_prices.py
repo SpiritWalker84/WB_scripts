@@ -477,6 +477,7 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
                 error_text = error_data.get('errorText', '')
                 if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
                     # Цены уже установлены - это нормально, не считаем ошибкой
+                    print(f"    ℹ Цены уже установлены (не требуют обновления)")
                     return True
             except (ValueError, KeyError):
                 pass
