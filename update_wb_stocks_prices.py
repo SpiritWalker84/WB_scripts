@@ -447,15 +447,26 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
     headers = get_headers()
     
     # Формируем данные в правильном формате (как в update_prices_stocks_wb.py)
-    data_items = []
+    # Удаляем дубликаты nmID - оставляем последнее значение для каждого nmID
+    seen_nmids = {}
     for item in prices_data:
         nmid = item.get("nmID") or item.get("nmId")
         if nmid:
-            data_items.append({
+            seen_nmids[int(nmid)] = {
                 "nmID": int(nmid),
                 "price": int(item["price"]),
                 "discount": int(item.get("discount", 0))
-            })
+            }
+    
+    data_items = list(seen_nmids.values())
+    
+    # Если были дубликаты, выводим информацию
+    if len(data_items) < len(prices_data):
+        print(f"    ℹ Удалено {len(prices_data) - len(data_items)} дубликатов nmID")
+    
+    if not data_items:
+        print(f"    ⚠ Нет данных для обновления (все дубликаты или пустые nmID)")
+        return True
     
     payload = {"data": data_items}
     
@@ -470,14 +481,20 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
             # Повторяем запрос после задержки
             response = requests.post(url, headers=headers, json=payload, timeout=120)
         
-        # Обрабатываем 400 ошибку "prices already set" - это не критично
+        # Обрабатываем 400 ошибки - некоторые не критичны
         if response.status_code == 400:
             try:
                 error_data = response.json()
                 error_text = error_data.get('errorText', '')
-                if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
+                error_lower = error_text.lower()
+                
+                if 'already set' in error_lower or 'уже установлены' in error_lower():
                     # Цены уже установлены - это нормально, не считаем ошибкой
                     print(f"    ℹ Цены уже установлены (не требуют обновления)")
+                    return True
+                elif 'duplicate' in error_lower:
+                    # Дубликаты - это не критично, но лучше их удалить (уже удалены выше)
+                    print(f"    ℹ Обнаружены дубликаты (уже обработано)")
                     return True
             except (ValueError, KeyError):
                 pass
@@ -485,12 +502,18 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
-        # Проверяем, не является ли это ошибкой "already set"
+        # Проверяем, не является ли это некритичной ошибкой
         if hasattr(e, 'response') and e.response is not None:
             error_text = e.response.text
-            if 'already set' in error_text.lower() or 'уже установлены' in error_text.lower():
+            error_lower = error_text.lower()
+            
+            if 'already set' in error_lower or 'уже установлены' in error_lower:
                 # Цены уже установлены - это нормально, не считаем ошибкой
                 print(f"    ℹ Цены уже установлены (не требуют обновления)")
+                return True
+            elif 'duplicate' in error_lower:
+                # Дубликаты - это не критично (должны быть удалены выше, но на всякий случай)
+                print(f"    ℹ Обнаружены дубликаты (уже обработано)")
                 return True
         
         # Это настоящая ошибка
