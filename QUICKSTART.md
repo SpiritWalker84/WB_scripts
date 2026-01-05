@@ -5,9 +5,9 @@
 ### 1. Клонирование и настройка
 
 ```bash
-# Клонируйте весь репозиторий (нельзя клонировать только wb_full)
-git clone https://github.com/SpiritWalker84/sysadmin_repo.git
-cd sysadmin_repo/wb_full
+# Клонируйте репозиторий
+git clone https://github.com/SpiritWalker84/WB_scripts.git
+cd WB_scripts
 
 # Создайте виртуальное окружение
 python3 -m venv venv
