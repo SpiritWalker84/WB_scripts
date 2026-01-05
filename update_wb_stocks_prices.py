@@ -415,7 +415,15 @@ def update_stocks(warehouse_id: int, stocks_data: List[Dict[str, Any]]) -> bool:
     payload = {"stocks": stocks_data}
     
     try:
-        response = requests.put(url, headers=headers, json=payload)
+        response = requests.put(url, headers=headers, json=payload, timeout=60)
+        
+        # Обрабатываем 429 ошибку (Too Many Requests)
+        if response.status_code == 429:
+            print(f"    ⚠ Превышен лимит запросов (429), ожидание 5 секунд...")
+            time.sleep(5)
+            # Повторяем запрос после задержки
+            response = requests.put(url, headers=headers, json=payload, timeout=60)
+        
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
@@ -627,9 +635,19 @@ def main() -> None:
         batch_size = 100
         for i in range(0, len(stocks_data), batch_size):
             batch = stocks_data[i:i + batch_size]
-            print(f"    Батч {i//batch_size + 1} ({len(batch)} товаров)...")
+            batch_num = i//batch_size + 1
+            print(f"    Батч {batch_num} ({len(batch)} товаров)...")
             if update_stocks(TARGET_WAREHOUSE_ID, batch):
                 print(f"    ✓ Обновлено остатков: {len(batch)}")
+            else:
+                # Если ошибка, делаем задержку перед следующим батчем
+                if i + batch_size < len(stocks_data):
+                    print(f"    ⚠ Задержка 3 секунды перед следующим батчем...")
+                    time.sleep(3)
+            
+            # Добавляем небольшую задержку между батчами для избежания 429 ошибок
+            if i + batch_size < len(stocks_data):
+                time.sleep(0.5)
     else:
         print(f"  ⚠ Нет данных для обновления остатков на складе {TARGET_WAREHOUSE_ID}")
     
@@ -640,9 +658,19 @@ def main() -> None:
         batch_size = 100
         for i in range(0, len(all_prices_data), batch_size):
             batch = all_prices_data[i:i + batch_size]
-            print(f"  Батч {i//batch_size + 1} ({len(batch)} товаров)...")
+            batch_num = i//batch_size + 1
+            print(f"  Батч {batch_num} ({len(batch)} товаров)...")
             if update_prices(batch):
                 print(f"  ✓ Обновлено цен: {len(batch)}")
+            else:
+                # Если ошибка, делаем задержку перед следующим батчем
+                if i + batch_size < len(all_prices_data):
+                    print(f"  ⚠ Задержка 3 секунды перед следующим батчем...")
+                    time.sleep(3)
+            
+            # Добавляем небольшую задержку между батчами для избежания 429 ошибок
+            if i + batch_size < len(all_prices_data):
+                time.sleep(0.5)
     
     print("\n" + "=" * 60)
     print("Обновление завершено!")
