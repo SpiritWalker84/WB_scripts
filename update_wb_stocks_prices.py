@@ -229,6 +229,11 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                             # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
                             manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
                             manufacturer_art_to_nmid[manufacturer_art_clean] = nmid
+                            
+                            # Также добавляем в art_to_nmid для единого словаря соответствий
+                            # Это дополняет данные из файла "Артикулы.xlsx"
+                            art_to_nmid[manufacturer_art_clean] = nmid
+                            art_to_nmid[manufacturer_art] = nmid  # Оригинальный вариант с пробелами
                     except (ValueError, TypeError, KeyError):
                         continue
                 
