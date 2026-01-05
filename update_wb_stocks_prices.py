@@ -93,74 +93,28 @@ def get_warehouses() -> List[Dict[str, Any]]:
 
 def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]:
     """
-    Читает файлы соответствия артикулов и баркодов
+    Читает файл соответствия "Баркоды.xlsx"
+    
+    Структура файла (данные с 5-й строки):
+    - Колонка B (индекс 1) - артикул производителя
+    - Колонка C (индекс 2) - nmID (артикул WB)
+    - Колонка G (индекс 6) - баркод
     
     Returns:
-        Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]: 
-            - Словарь {артикул_продавца: nmID}
+        Tuple[Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, str]]: 
+            - Словарь {артикул_производителя: nmID}
             - Словарь {баркод: nmID}
-            - Словарь {артикул_производителя: nmID} (если есть)
-            - Словарь {баркод: chrtId} (если доступен)
+            - Словарь {артикул_производителя: nmID} (дубликат для совместимости)
+            - Словарь {артикул_производителя: баркод}
+            - Словарь {баркод: chrtId} (пустой, заполняется позже)
     """
-    print("Чтение файлов соответствия...")
+    print("Чтение файла соответствия...")
     
-    art_to_nmid: Dict[str, str] = {}
-    barcode_to_nmid: Dict[str, str] = {}
-    manufacturer_art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID
-    manufacturer_art_to_barcode: Dict[str, str] = {}  # Артикул производителя -> баркод (из колонки G)
+    art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID
+    barcode_to_nmid: Dict[str, str] = {}  # Баркод -> nmID
+    manufacturer_art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID (дубликат)
+    manufacturer_art_to_barcode: Dict[str, str] = {}  # Артикул производителя -> баркод
     barcode_to_chrtid: Dict[str, str] = {}
-    
-    # Ищем файл с артикулами
-    art_file = None
-    for file in os.listdir('.'):
-        if 'Артикулы' in file and file.endswith('.xlsx'):
-            art_file = file
-            break
-    
-    if art_file:
-        print(f"Читаю файл с артикулами: {art_file}")
-        try:
-            # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки, индекс 4)
-            df_art = pd.read_excel(art_file, header=0, skiprows=4)
-            
-            # Структура (как в update_prices_stocks_wb.py):
-            # Колонка B (индекс 1) - артикул производителя (каталожный номер)
-            # Колонка C (индекс 2) - nmID (артикул WB)
-            if len(df_art.columns) >= 3:
-                art_col = df_art.columns[1]  # Колонка B - артикул производителя
-                nmid_col = df_art.columns[2]  # Колонка C - nmID
-                
-                print(f"Использую колонку '{art_col}' (B) для артикула производителя")
-                print(f"Использую колонку '{nmid_col}' (C) для nmID")
-                
-                for idx, row in df_art.iterrows():
-                    try:
-                        art = str(row[art_col]).strip()
-                        nmid_val = row[nmid_col]
-                        
-                        # Пропускаем заголовки и пустые значения
-                        if pd.isna(nmid_val) or str(art).lower() in ['артикул', 'артикул продавца', 'nan', '']:
-                            continue
-                        
-                        nmid = str(int(float(nmid_val))).strip()
-                        
-                        if art and nmid and art != 'nan':
-                            # Создаем соответствие артикул производителя -> nmID
-                            # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
-                            art_clean = art.replace(' ', '').upper()
-                            art_to_nmid[art_clean] = nmid
-                            # Также сохраняем оригинальный вариант (на случай если в CSV есть пробелы)
-                            art_to_nmid[art] = nmid
-                    except (ValueError, TypeError, KeyError):
-                        continue
-                
-                print(f"Загружено соответствий артикул->nmID: {len(art_to_nmid)}")
-                if len(art_to_nmid) > 0:
-                    # Показываем первые примеры для проверки
-                    examples = list(art_to_nmid.items())[:3]
-                    print(f"  Примеры: {examples}")
-        except Exception as e:
-            print(f"Ошибка при чтении файла артикулов: {e}")
     
     # Ищем файл с баркодами
     barcode_file = None
@@ -172,94 +126,72 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     if barcode_file:
         print(f"Читаю файл с баркодами: {barcode_file}")
         try:
-            # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки, индекс 4)
+            # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки)
             df_barcode = pd.read_excel(barcode_file, header=0, skiprows=4)
             
-            # Структура:
-            # Колонка B (индекс 1) - артикул производителя (F00BH40270, AG 01007, CUK18000-2)
+            # Структура файла (данные с 5-й строки):
+            # Колонка B (индекс 1) - артикул производителя
+            # Колонка C (индекс 2) - nmID (артикул WB)
             # Колонка G (индекс 6) - баркод
-            # Колонка C (индекс 2) - nmID
             if len(df_barcode.columns) >= 7:
                 manufacturer_art_col = df_barcode.columns[1]  # Колонка B - артикул производителя
+                nmid_col = df_barcode.columns[2]  # Колонка C - nmID
                 barcode_col = df_barcode.columns[6]  # Колонка G - баркод
                 
                 print(f"Использую колонку '{manufacturer_art_col}' (B) для артикула производителя")
+                print(f"Использую колонку '{nmid_col}' (C) для nmID")
                 print(f"Использую колонку '{barcode_col}' (G) для баркода")
-                
-                # Ищем колонку с nmID (колонка C)
-                nmid_col = None
-                if len(df_barcode.columns) > 2:
-                    # Проверяем колонку C на наличие nmID
-                    sample_val = df_barcode.iloc[0, 2] if len(df_barcode) > 0 else None
-                    if sample_val and (isinstance(sample_val, (int, float)) or (isinstance(sample_val, str) and sample_val.strip().isdigit())):
-                        nmid_col = df_barcode.columns[2]
-                
-                if nmid_col:
-                    print(f"Использую колонку '{nmid_col}' (C) для nmID")
-                else:
-                    print("⚠ nmID будет получен через артикул продавца из файла артикулов")
                 
                 for idx, row in df_barcode.iterrows():
                     try:
-                        barcode = str(row[barcode_col]).strip()
                         manufacturer_art = str(row[manufacturer_art_col]).strip() if len(row) > 1 else None
+                        nmid_val = row[nmid_col]
+                        barcode = str(row[barcode_col]).strip()
                         
                         # Пропускаем заголовки и пустые значения
-                        if barcode.lower() in ['баркод', 'barcode', 'баркод в системе', 'nan', ''] or len(barcode) <= 5:
-                            continue
-                        
                         if manufacturer_art.lower() in ['артикул', 'артикул производителя', 'nan', ''] or not manufacturer_art:
                             continue
                         
-                        nmid = None
+                        if pd.isna(nmid_val) or not barcode or barcode.lower() in ['баркод', 'barcode', 'баркод в системе', 'nan', ''] or len(barcode) <= 5:
+                            continue
                         
-                        # Если есть колонка с nmID в файле баркодов
-                        if nmid_col:
-                            nmid_val = row[nmid_col]
-                            if not pd.isna(nmid_val):
-                                nmid = str(int(float(nmid_val))).strip()
-                        
-                        # Если nmID не найден, пробуем получить через артикул производителя из файла артикулов
-                        # Но в файле артикулов нет артикула производителя, только артикул продавца
-                        # Поэтому используем только nmID из файла баркодов
+                        # Получаем nmID из колонки C
+                        try:
+                            nmid = str(int(float(nmid_val))).strip()
+                        except (ValueError, TypeError):
+                            continue
                         
                         if nmid and barcode:
-                            barcode_to_nmid[barcode] = nmid
-                            
                             # Создаем соответствие артикул производителя -> nmID
-                            # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
                             manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
-                            manufacturer_art_to_nmid[manufacturer_art_clean] = nmid
-                            
-                            # Создаем соответствие артикул производителя -> баркод (важно для обновления остатков!)
-                            manufacturer_art_to_barcode[manufacturer_art_clean] = barcode
-                            manufacturer_art_to_barcode[manufacturer_art] = barcode  # Оригинальный вариант с пробелами
-                            
-                            # Также добавляем в art_to_nmid для единого словаря соответствий
-                            # Это дополняет данные из файла "Артикулы.xlsx"
                             art_to_nmid[manufacturer_art_clean] = nmid
                             art_to_nmid[manufacturer_art] = nmid  # Оригинальный вариант с пробелами
-                    except (ValueError, TypeError, KeyError):
+                            manufacturer_art_to_nmid[manufacturer_art_clean] = nmid
+                            
+                            # Создаем соответствие баркод -> nmID
+                            barcode_to_nmid[barcode] = nmid
+                            
+                            # Создаем соответствие артикул производителя -> баркод
+                            manufacturer_art_to_barcode[manufacturer_art_clean] = barcode
+                            manufacturer_art_to_barcode[manufacturer_art] = barcode  # Оригинальный вариант с пробелами
+                    except (ValueError, TypeError, KeyError, IndexError):
                         continue
                 
+                print(f"Загружено соответствий артикул_производителя->nmID: {len(art_to_nmid)}")
                 print(f"Загружено соответствий баркод->nmID: {len(barcode_to_nmid)}")
+                print(f"Загружено соответствий артикул_производителя->баркод: {len(manufacturer_art_to_barcode)}")
+                if len(art_to_nmid) > 0:
+                    examples = list(art_to_nmid.items())[:3]
+                    print(f"  Примеры артикул->nmID: {examples}")
                 if len(barcode_to_nmid) > 0:
-                    # Показываем первые примеры для проверки
                     examples = list(barcode_to_nmid.items())[:3]
-                    print(f"  Примеры: {examples}")
+                    print(f"  Примеры баркод->nmID: {examples}")
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
-    
-    # Итоговая статистика
-    print(f"\nИтого соответствий артикул_производителя->nmID: {len(art_to_nmid)}")
-    if len(art_to_nmid) > 0:
-        examples = list(art_to_nmid.items())[:3]
-        print(f"  Примеры: {examples}")
-    
-    print(f"\nЗагружено соответствий артикул_производителя->баркод (из колонки G): {len(manufacturer_art_to_barcode)}")
-    if len(manufacturer_art_to_barcode) > 0:
-        examples = list(manufacturer_art_to_barcode.items())[:3]
-        print(f"  Примеры: {examples}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("⚠ Файл 'Баркоды.xlsx' не найден!")
     
     return art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, manufacturer_art_to_barcode, barcode_to_chrtid
 
