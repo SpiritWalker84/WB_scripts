@@ -228,39 +228,19 @@ def get_chrt_id_by_barcode(barcode: str, warehouse_id: int, stocks_cache: Option
     """
     Получить chrtId по баркоду через API или из кэша
     
+    Примечание: API может не поддерживать GET с параметром sku, поэтому возвращаем None.
+    API сам найдет chrtId по sku при обновлении остатков через PUT запрос.
+    
     Args:
         barcode: Баркод товара
         warehouse_id: ID склада
         stocks_cache: Кэш остатков {barcode: chrtId}
         
     Returns:
-        Optional[int]: chrtId или None
+        Optional[int]: chrtId или None (API найдет автоматически)
     """
-    # Сначала проверяем кэш
-    if stocks_cache and barcode in stocks_cache:
-        return stocks_cache[barcode]
-    
-    url = f"{Config.STOCKS_API_URL}/stocks/{warehouse_id}"
-    headers = get_headers()
-    params = {"sku": barcode}
-    
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        stocks = response.json()
-        
-        if stocks and len(stocks) > 0:
-            chrt_id = stocks[0].get('chrtId')
-            if chrt_id and stocks_cache is not None:
-                stocks_cache[barcode] = chrt_id
-            return chrt_id
-    except requests.exceptions.Timeout:
-        print(f"    ⚠ Таймаут при получении chrtId для баркода {barcode}")
-    except requests.exceptions.RequestException as e:
-        print(f"    ⚠ Ошибка при получении chrtId для баркода {barcode}: {e}")
-    except Exception as e:
-        print(f"    ⚠ Неожиданная ошибка при получении chrtId для баркода {barcode}: {e}")
-    
+    # API не поддерживает получение chrtId через GET запрос с параметром sku
+    # Возвращаем None - API сам найдет chrtId по sku при обновлении остатков
     return None
 
 
