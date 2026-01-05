@@ -539,18 +539,24 @@ def main() -> None:
             nmid = None
             
             # Сначала пробуем найти nmID через артикул производителя (из CSV колонка B)
+            # Логика как в update_prices_stocks_wb.py: артикул из CSV сопоставляется с art_to_nmid
             if product.get('manufacturer_art'):
-                manufacturer_art_clean = str(product['manufacturer_art']).strip().upper().replace(' ', '').replace('-', '')
-                # Пробуем точное совпадение
-                if manufacturer_art_clean in manufacturer_art_to_nmid:
-                    nmid = manufacturer_art_to_nmid[manufacturer_art_clean]
+                manufacturer_art = str(product['manufacturer_art']).strip()
+                # Пробуем точное совпадение (с пробелами и без)
+                if manufacturer_art in art_to_nmid:
+                    nmid = art_to_nmid[manufacturer_art]
                 else:
-                    # Пробуем найти с учетом возможных различий (пробелы, регистр, дефисы)
-                    for man_art_key, man_art_nmid in manufacturer_art_to_nmid.items():
-                        man_art_key_clean = str(man_art_key).strip().upper().replace(' ', '').replace('-', '')
-                        if man_art_key_clean == manufacturer_art_clean:
-                            nmid = man_art_nmid
-                            break
+                    # Пробуем без пробелов и в верхнем регистре
+                    manufacturer_art_clean = manufacturer_art.replace(' ', '').upper()
+                    if manufacturer_art_clean in art_to_nmid:
+                        nmid = art_to_nmid[manufacturer_art_clean]
+                    else:
+                        # Пробуем найти с учетом возможных различий
+                        for art_key, art_nmid in art_to_nmid.items():
+                            art_key_clean = str(art_key).strip().replace(' ', '').upper()
+                            if art_key_clean == manufacturer_art_clean:
+                                nmid = art_nmid
+                                break
             
             # Если не нашли через артикул производителя, пробуем через баркод
             if not nmid and product.get('barcode'):
