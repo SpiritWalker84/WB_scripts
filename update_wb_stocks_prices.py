@@ -418,25 +418,44 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                     continue
                 
                 # Ищем артикул продавца или баркод
+                # Проверяем заголовок для понимания структуры
                 seller_art = None
                 barcode = None
                 
                 # Пробуем найти в колонке B (индекс 1)
                 if len(row) > 1 and row[1]:
-                    potential_id = str(row[1]).strip().replace('"', '')
-                    # Если похоже на баркод (длинная строка)
-                    if len(potential_id) > 8:
-                        barcode = potential_id
-                    else:
-                        seller_art = potential_id
+                    potential_id = str(row[1]).strip().replace('"', '').replace("'", '')
+                    # Пропускаем заголовки
+                    if potential_id.lower() not in ['артикул', 'артикул продавца', 'название', 'name', 'nan', '']:
+                        # Если похоже на баркод (длинная строка, только цифры/буквы)
+                        if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum():
+                            barcode = potential_id
+                        else:
+                            seller_art = potential_id
                 
                 # Пробуем найти в колонке C (индекс 2)
                 if len(row) > 2 and row[2]:
-                    potential_id = str(row[2]).strip().replace('"', '')
-                    if len(potential_id) > 8 and not barcode:
-                        barcode = potential_id
-                    elif not seller_art:
-                        seller_art = potential_id
+                    potential_id = str(row[2]).strip().replace('"', '').replace("'", '')
+                    # Пропускаем заголовки
+                    if potential_id.lower() not in ['баркод', 'barcode', 'артикул', 'art', 'nan', '']:
+                        # Если похоже на баркод (длинная строка)
+                        if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum() and not barcode:
+                            barcode = potential_id
+                        elif not seller_art and len(potential_id) > 0:
+                            seller_art = potential_id
+                
+                # Если не нашли в B и C, пробуем другие колонки (может быть в других местах)
+                if not seller_art and not barcode:
+                    # Пробуем найти в других колонках (до колонки D)
+                    for col_idx in range(min(3, len(row))):
+                        if col_idx < len(row) and row[col_idx]:
+                            potential_id = str(row[col_idx]).strip().replace('"', '').replace("'", '')
+                            if potential_id.lower() not in ['бренд', 'brand', 'название', 'name', 'nan', '']:
+                                if len(potential_id) > 8 and potential_id.replace('-', '').replace('_', '').isalnum():
+                                    if not barcode:
+                                        barcode = potential_id
+                                elif not seller_art and len(potential_id) > 0:
+                                    seller_art = potential_id
                 
                 products.append({
                     'seller_art': seller_art,
@@ -559,19 +578,46 @@ def main() -> None:
         if not products:
             continue
         
+        matched_count = 0
+        unmatched_count = 0
+        
         for product in products:
             nmid = None
             
             # Пытаемся найти nmID через артикул продавца
-            if product['seller_art'] and product['seller_art'] in art_to_nmid:
-                nmid = art_to_nmid[product['seller_art']]
+            if product['seller_art']:
+                seller_art_clean = str(product['seller_art']).strip()
+                # Пробуем точное совпадение
+                if seller_art_clean in art_to_nmid:
+                    nmid = art_to_nmid[seller_art_clean]
+                else:
+                    # Пробуем найти с учетом возможных различий (пробелы, регистр)
+                    for art_key, art_nmid in art_to_nmid.items():
+                        if str(art_key).strip().lower() == seller_art_clean.lower():
+                            nmid = art_nmid
+                            break
             
             # Если не нашли, пробуем через баркод
-            if not nmid and product['barcode'] and product['barcode'] in barcode_to_nmid:
-                nmid = barcode_to_nmid[product['barcode']]
+            if not nmid and product['barcode']:
+                barcode_clean = str(product['barcode']).strip()
+                # Пробуем точное совпадение
+                if barcode_clean in barcode_to_nmid:
+                    nmid = barcode_to_nmid[barcode_clean]
+                else:
+                    # Пробуем найти с учетом возможных различий
+                    for barcode_key, barcode_nmid in barcode_to_nmid.items():
+                        if str(barcode_key).strip() == barcode_clean:
+                            nmid = barcode_nmid
+                            break
             
             if not nmid:
+                unmatched_count += 1
+                # Выводим первые несколько примеров несовпадений для отладки
+                if unmatched_count <= 3:
+                    print(f"    ⚠ Не найдено соответствие: артикул={product.get('seller_art')}, баркод={product.get('barcode')}")
                 continue
+            
+            matched_count += 1
             
             # Подготавливаем данные для обновления цен
             new_price = int(product['price'] * Config.PRICE_MULTIPLIER)
@@ -611,6 +657,11 @@ def main() -> None:
                     })
         
         print(f"  Обработано товаров: {len(products)}")
+        print(f"  Найдено соответствий: {matched_count}")
+        if unmatched_count > 0:
+            print(f"  Не найдено соответствий: {unmatched_count}")
+            if unmatched_count > 3:
+                print(f"    (показаны только первые 3 примера)")
     
     if not all_stocks_data and not all_prices_data:
         print("\n⚠ Не найдено данных для обновления")
