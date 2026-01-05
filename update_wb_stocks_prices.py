@@ -186,6 +186,34 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                 if len(barcode_to_nmid) > 0:
                     examples = list(barcode_to_nmid.items())[:3]
                     print(f"  Примеры баркод->nmID: {examples}")
+                
+                # Отладка: проверяем конкретные артикулы
+                test_articles = ['PF 974', 'W610/6', '3397006952']
+                print(f"\nОтладка: проверка конкретных артикулов:")
+                for test_art in test_articles:
+                    test_art_clean = test_art.replace(' ', '').upper()
+                    found_nmid = None
+                    found_barcode = None
+                    
+                    # Пробуем найти точное совпадение
+                    if test_art in art_to_nmid:
+                        found_nmid = art_to_nmid[test_art]
+                    elif test_art_clean in art_to_nmid:
+                        found_nmid = art_to_nmid[test_art_clean]
+                    
+                    if test_art in manufacturer_art_to_barcode:
+                        found_barcode = manufacturer_art_to_barcode[test_art]
+                    elif test_art_clean in manufacturer_art_to_barcode:
+                        found_barcode = manufacturer_art_to_barcode[test_art_clean]
+                    
+                    if found_nmid:
+                        print(f"  ✓ '{test_art}' -> nmID: {found_nmid}, баркод: {found_barcode or 'не найден'}")
+                    else:
+                        print(f"  ✗ '{test_art}' -> не найден в файле соответствия")
+                        # Показываем похожие артикулы для отладки
+                        similar = [k for k in art_to_nmid.keys() if test_art.upper() in str(k).upper() or str(k).upper() in test_art.upper()]
+                        if similar:
+                            print(f"    Похожие артикулы: {similar[:3]}")
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
             import traceback
