@@ -204,16 +204,17 @@ def clear_all_stocks():
         print("Ошибка: не найдено данных о товарах")
         return
     
-    # Подтверждение перед обнулением
-    print("\n" + "=" * 60)
-    print("ВНИМАНИЕ! Будет обнулено остатков:")
+    # Исключаем склад 1620586 из обработки
+    EXCLUDED_WAREHOUSE_ID = 1620586
+    warehouses = [w for w in warehouses if w.get('id') != EXCLUDED_WAREHOUSE_ID]
+    
+    if not warehouses:
+        print("Ошибка: не осталось складов для обработки после исключения")
+        return
+    
+    print(f"\nБудет обнулено остатков:")
     print(f"  - Товаров: {len(products['barcodes']) if products['barcodes'] else len(products['nmIDs'])}")
     print(f"  - Складов: {len(warehouses)}")
-    print("=" * 60)
-    confirm = input("\nПродолжить обнуление остатков? (yes/no): ").strip().lower()
-    if confirm not in ['yes', 'y', 'да', 'д']:
-        print("Операция отменена.")
-        return
     
     # Обнуляем остатки на каждом складе
     print("\n3. Обнуляю остатки на складах...")
