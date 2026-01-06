@@ -4,6 +4,7 @@
 import os
 import requests
 import pandas as pd
+import time
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 
@@ -137,8 +138,15 @@ def read_products_data() -> Dict[str, List[str]]:
     
     return products
 
-def clear_stocks_by_barcodes(warehouse_id: int, barcodes: List[str]) -> bool:
-    """Обнулить остатки по баркодам (установить amount: 0)"""
+def clear_stocks_by_barcodes(warehouse_id: int, barcodes: List[str], max_retries: int = 3) -> bool:
+    """
+    Обнулить остатки по баркодам (установить amount: 0)
+    
+    Args:
+        warehouse_id: ID склада
+        barcodes: Список баркодов
+        max_retries: Максимальное количество попыток при ошибке 429
+    """
     url = f"{BASE_URL}/stocks/{warehouse_id}"
     headers = get_headers()
     
@@ -147,16 +155,41 @@ def clear_stocks_by_barcodes(warehouse_id: int, barcodes: List[str]) -> bool:
     
     payload = {"stocks": stocks}
     
-    try:
-        response = requests.put(url, headers=headers, json=payload)
-        response.raise_for_status()
-        print(f"  ✓ Обнулено остатков по баркодам: {len(barcodes)}")
-        return True
-    except requests.exceptions.RequestException as e:
-        print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
-        if hasattr(e.response, 'text'):
-            print(f"    Ответ сервера: {e.response.text}")
-        return False
+    for attempt in range(max_retries):
+        try:
+            response = requests.put(url, headers=headers, json=payload, timeout=60)
+            
+            # Обрабатываем 429 ошибку (Too Many Requests)
+            if response.status_code == 429:
+                wait_time = 5 * (attempt + 1)  # Увеличиваем задержку с каждой попыткой
+                print(f"    ⚠ Превышен лимит запросов (429), ожидание {wait_time} секунд...")
+                time.sleep(wait_time)
+                # Повторяем запрос после задержки
+                continue
+            
+            response.raise_for_status()
+            print(f"  ✓ Обнулено остатков по баркодам: {len(barcodes)}")
+            return True
+        except requests.exceptions.RequestException as e:
+            # Если это последняя попытка, выводим ошибку
+            if attempt == max_retries - 1:
+                print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"    Ответ сервера: {e.response.text}")
+                return False
+            # Если не последняя попытка и это 429, продолжаем цикл
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                wait_time = 5 * (attempt + 1)
+                print(f"    ⚠ Превышен лимит запросов (429), ожидание {wait_time} секунд...")
+                time.sleep(wait_time)
+                continue
+            # Для других ошибок сразу возвращаем False
+            print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"    Ответ сервера: {e.response.text}")
+            return False
+    
+    return False
 
 def delete_stocks_by_barcodes(warehouse_id: int, barcodes: List[str]) -> bool:
     """Удалить остатки по баркодам"""
@@ -233,6 +266,10 @@ def clear_all_stocks():
                 batch = products['barcodes'][i:i + batch_size]
                 print(f"  Обрабатываю батч {i//batch_size + 1} ({len(batch)} товаров)...")
                 clear_stocks_by_barcodes(warehouse_id, batch)
+                
+                # Добавляем небольшую задержку между батчами для избежания 429 ошибок
+                if i + batch_size < len(products['barcodes']):
+                    time.sleep(0.5)
         
         # Если нет баркодов, но есть nmID, можно попробовать использовать их
         # Но для этого нужен chrtId, который получается из nmID через другой API
