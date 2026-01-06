@@ -297,21 +297,47 @@ def unzip_and_get_price_file(zip_path: Path, target_dir: Path) -> Path:
         print(f"Предупреждение: не удалось удалить исходный файл: {e}")
     
     # Ищем прайс-файл по маске *.csv или *.txt
+    # Исключаем уже обработанные файлы с префиксом brand_
     print("Поиск прайс-файла (*.csv или *.txt)...")
     
-    csv_files = list(target_dir.glob("*.csv"))
-    txt_files = list(target_dir.glob("*.txt"))
+    csv_files = [f for f in target_dir.glob("*.csv") if not f.name.startswith("brand_")]
+    txt_files = [f for f in target_dir.glob("*.txt") if not f.name.startswith("brand_")]
     
     all_files = csv_files + txt_files
     
     if not all_files:
         raise Exception(f"Прайс-файл (*.csv или *.txt) не найден в {target_dir}")
     
-    # Берем первый найденный файл
+    # Сортируем по времени модификации (самый новый первым) и берем первый
+    all_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    if len(all_files) > 1:
+        print(f"Найдено {len(all_files)} файлов (исключая brand_*):")
+        for f in all_files[:5]:  # Показываем первые 5
+            print(f"  - {f.name} (модифицирован: {datetime.fromtimestamp(f.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')})")
+    
     price_file = all_files[0]
-    print(f"Найден прайс-файл: {price_file}")
+    print(f"Выбран прайс-файл: {price_file}")
     
     return price_file
+
+
+def cleanup_old_brand_files(target_dir: Path) -> None:
+    """
+    Удаляет старые файлы брендов (brand_*.csv) перед обработкой нового файла
+    
+    Args:
+        target_dir: Папка с файлами брендов
+    """
+    brand_files = list(target_dir.glob("brand_*.csv"))
+    if brand_files:
+        print(f"Удаление {len(brand_files)} старых файлов брендов...")
+        for brand_file in brand_files:
+            try:
+                brand_file.unlink()
+            except Exception as e:
+                print(f"Предупреждение: не удалось удалить {brand_file}: {e}")
+        print("Старые файлы брендов удалены")
 
 
 def sanitize_filename(brand: str) -> str:
@@ -535,6 +561,9 @@ def main() -> None:
         
         # Распаковываем и получаем путь к прайс-файлу
         price_file = unzip_and_get_price_file(zip_path, Config.TARGET_DIR)
+        
+        # Очищаем старые файлы брендов перед обработкой нового файла
+        cleanup_old_brand_files(Config.TARGET_DIR)
         
         # Разбиваем прайс по брендам
         split_price_by_brand(price_file, Config.TARGET_DIR)
