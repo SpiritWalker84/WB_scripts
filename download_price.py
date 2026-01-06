@@ -16,7 +16,7 @@ import zipfile
 import csv
 import re
 from datetime import datetime
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, Any
 from dotenv import load_dotenv
 
 
@@ -415,8 +415,10 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
     dialect = detect_delimiter(sample)
     
     # Читаем файл и разбиваем по брендам
-    brand_files: Dict[str, Dict[str, any]] = {}
+    brand_files: Dict[str, Dict[str, Any]] = {}
     header: Optional[List[str]] = None
+    brand_counter: Dict[str, int] = {}  # Для отладки: подсчет уникальных брендов
+    sample_brands: List[str] = []  # Для отладки: первые несколько брендов
     
     with open(price_path, 'r', encoding=encoding) as f:
         reader = csv.reader(f, dialect=dialect)
@@ -428,6 +430,7 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
             # Первая строка - заголовок
             if row_num == 0:
                 header = row
+                print(f"Заголовок файла: {header[:5]}...")  # Показываем первые 5 колонок
                 continue
             
             # Первая колонка - бренд
@@ -439,18 +442,42 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
             if not brand:
                 continue
             
+            # Нормализуем название бренда: убираем только лишние пробелы (но сохраняем регистр)
+            # Это поможет группировать "JapanParts" и "JapanParts " как один бренд
+            brand_key = ' '.join(brand.split())
+            
+            # Отладка: собираем первые 10 уникальных брендов
+            if brand_key not in brand_counter:
+                brand_counter[brand_key] = 0
+                if len(sample_brands) < 10:
+                    sample_brands.append(brand)
+            
+            brand_counter[brand_key] += 1
+            
             # Создаем файл для бренда, если его еще нет
-            if brand not in brand_files:
+            if brand_key not in brand_files:
+                # Используем оригинальное название для имени файла
                 sanitized_brand = sanitize_filename(brand)
                 brand_file_path = output_dir / f"brand_{sanitized_brand}.csv"
-                brand_files[brand] = {
+                brand_files[brand_key] = {
                     'path': brand_file_path,
-                    'rows': []
+                    'rows': [],
+                    'display_name': brand  # Сохраняем оригинальное название для отображения
                 }
                 print(f"Создан файл для бренда: {brand} -> {brand_file_path}")
             
             # Добавляем строку к бренду
-            brand_files[brand]['rows'].append(row)
+            brand_files[brand_key]['rows'].append(row)
+    
+    # Отладочная информация
+    print(f"\nОтладка: найдено уникальных брендов: {len(brand_counter)}")
+    if len(brand_counter) <= 20:
+        print("Все найденные бренды:")
+        for brand, count in sorted(brand_counter.items(), key=lambda x: x[1], reverse=True):
+            print(f"  - {brand}: {count} строк")
+    else:
+        print(f"Первые 10 найденных брендов: {sample_brands}")
+        print(f"Всего уникальных брендов: {len(brand_counter)}")
     
     if not header:
         raise Exception("Файл не содержит заголовка")
@@ -459,8 +486,9 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
     print("Запись файлов по брендам...")
     created_files: List[Path] = []
     
-    for brand, data in brand_files.items():
+    for brand_key, data in brand_files.items():
         brand_file_path = data['path']
+        brand_display = data.get('display_name', brand_key)
         
         with open(brand_file_path, 'w', encoding=encoding, newline='') as out_f:
             # Используем QUOTE_ALL при записи, чтобы все поля были в кавычках
@@ -481,7 +509,7 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
                 writer.writerow(row)
         
         created_files.append(brand_file_path)
-        print(f"Записано {len(data['rows'])} строк для бренда '{brand}' в {brand_file_path}")
+        print(f"Записано {len(data['rows'])} строк для бренда '{brand_display}' в {brand_file_path}")
     
     print(f"\nСоздано файлов по брендам: {len(created_files)}")
     print("Список созданных файлов:")
