@@ -56,10 +56,6 @@ def get_warehouses() -> List[Dict[str, Any]]:
     response.raise_for_status()
     
     warehouses = response.json()
-    print(f"Найдено складов: {len(warehouses)}")
-    for warehouse in warehouses:
-        print(f"  - {warehouse.get('name')} (ID: {warehouse.get('id')})")
-    
     return warehouses
 
 def read_products_data() -> Dict[str, List[str]]:
@@ -77,13 +73,11 @@ def read_products_data() -> Dict[str, List[str]]:
             break
     
     if art_file:
-        print(f"Читаю файл с артикулами: {art_file}")
         df_art = pd.read_excel(art_file, header=0)
         
         # Читаем nmID из колонки C (индекс 2) - "Артикул продавца"
         if len(df_art.columns) > 2:
             col_nmid = df_art.columns[2]  # Колонка C
-            print(f"Использую колонку '{col_nmid}' для nmID")
             
             # Пропускаем заголовки (первые строки могут содержать текст)
             values = df_art[col_nmid].dropna()
@@ -98,9 +92,6 @@ def read_products_data() -> Dict[str, List[str]]:
                     # Пропускаем нечисловые значения (заголовки)
                     continue
             products['nmIDs'] = nm_ids
-            print(f"Найдено артикулов (nmID): {len(products['nmIDs'])}")
-            if len(products['nmIDs']) > 0:
-                print(f"  Примеры: {products['nmIDs'][:5]}")
         else:
             print("Ошибка: файл с артикулами не содержит колонку C")
     
@@ -112,13 +103,11 @@ def read_products_data() -> Dict[str, List[str]]:
             break
     
     if barcode_file:
-        print(f"Читаю файл с баркодами: {barcode_file}")
         df_barcode = pd.read_excel(barcode_file, header=0)
         
         # Читаем баркоды из колонки G (индекс 6)
         if len(df_barcode.columns) > 6:
             col_barcode = df_barcode.columns[6]  # Колонка G
-            print(f"Использую колонку '{col_barcode}' для баркодов")
             
             # Пропускаем заголовки
             values = df_barcode[col_barcode].dropna()
@@ -130,9 +119,6 @@ def read_products_data() -> Dict[str, List[str]]:
                 if val_str.lower() not in ['баркод', 'barcode', 'баркод в системе', ''] and len(val_str) > 5:
                     barcodes.append(val_str)
             products['barcodes'] = barcodes
-            print(f"Найдено баркодов: {len(products['barcodes'])}")
-            if len(products['barcodes']) > 0:
-                print(f"  Примеры: {products['barcodes'][:5]}")
         else:
             print("Ошибка: файл с баркодами не содержит колонку G")
     
@@ -168,7 +154,6 @@ def clear_stocks_by_barcodes(warehouse_id: int, barcodes: List[str], max_retries
                 continue
             
             response.raise_for_status()
-            print(f"  ✓ Обнулено остатков по баркодам: {len(barcodes)}")
             return True
         except requests.exceptions.RequestException as e:
             # Если это последняя попытка, выводим ошибку
@@ -211,12 +196,7 @@ def delete_stocks_by_barcodes(warehouse_id: int, barcodes: List[str]) -> bool:
 
 def clear_all_stocks():
     """Основная функция для обнуления всех остатков"""
-    print("=" * 60)
-    print("Начинаю обнуление остатков на Wildberries")
-    print("=" * 60)
-    
     # Получаем список складов
-    print("\n1. Получаю список складов...")
     try:
         warehouses = get_warehouses()
     except requests.exceptions.RequestException as e:
@@ -230,7 +210,6 @@ def clear_all_stocks():
         return
     
     # Читаем данные о товарах
-    print("\n2. Читаю данные о товарах из xlsx файлов...")
     products = read_products_data()
     
     if not products['barcodes'] and not products['nmIDs']:
@@ -245,26 +224,23 @@ def clear_all_stocks():
         print("Ошибка: не осталось складов для обработки после исключения")
         return
     
-    print(f"\nБудет обнулено остатков:")
-    print(f"  - Товаров: {len(products['barcodes']) if products['barcodes'] else len(products['nmIDs'])}")
-    print(f"  - Складов: {len(warehouses)}")
-    
     # Обнуляем остатки на каждом складе
-    print("\n3. Обнуляю остатки на складах...")
+    print(f"Обнуляю остатки: {len(products['barcodes']) if products['barcodes'] else len(products['nmIDs'])} товаров на {len(warehouses)} складе(ах)...")
     
     for warehouse in warehouses:
         warehouse_id = warehouse.get('id')
-        warehouse_name = warehouse.get('name', 'Неизвестный склад')
-        
-        print(f"\nСклад: {warehouse_name} (ID: {warehouse_id})")
         
         # Используем баркоды для обнуления (если они есть)
         if products['barcodes']:
             # Разбиваем на батчи, чтобы не перегружать API
             batch_size = 100
+            total_batches = (len(products['barcodes']) + batch_size - 1) // batch_size
             for i in range(0, len(products['barcodes']), batch_size):
                 batch = products['barcodes'][i:i + batch_size]
-                print(f"  Обрабатываю батч {i//batch_size + 1} ({len(batch)} товаров)...")
+                batch_num = i//batch_size + 1
+                # Показываем прогресс каждые 10 батчей или последний батч
+                if batch_num % 10 == 0 or batch_num == total_batches:
+                    print(f"  Обрабатываю батч {batch_num}/{total_batches}...")
                 clear_stocks_by_barcodes(warehouse_id, batch)
                 
                 # Добавляем небольшую задержку между батчами для избежания 429 ошибок
@@ -275,9 +251,7 @@ def clear_all_stocks():
         # Но для этого нужен chrtId, который получается из nmID через другой API
         # Пока оставим только работу с баркодами
     
-    print("\n" + "=" * 60)
     print("Обнуление остатков завершено!")
-    print("=" * 60)
 
 if __name__ == "__main__":
     clear_all_stocks()

@@ -109,8 +109,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
             - Словарь {артикул_производителя: баркод}
             - Словарь {баркод: chrtId} (пустой, заполняется позже)
     """
-    print("Чтение файла соответствия...")
-    
     art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID
     barcode_to_nmid: Dict[str, str] = {}  # Баркод -> nmID
     manufacturer_art_to_nmid: Dict[str, str] = {}  # Артикул производителя -> nmID (дубликат)
@@ -125,7 +123,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
             break
     
     if barcode_file:
-        print(f"Читаю файл с баркодами: {barcode_file}")
         try:
             # Читаем файл, пропуская первые 4 строки (данные начинаются с 5-й строки)
             df_barcode = pd.read_excel(barcode_file, header=0, skiprows=4)
@@ -138,10 +135,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                 manufacturer_art_col = df_barcode.columns[1]  # Колонка B - артикул производителя
                 nmid_col = df_barcode.columns[2]  # Колонка C - nmID
                 barcode_col = df_barcode.columns[6]  # Колонка G - баркод
-                
-                print(f"Использую колонку '{manufacturer_art_col}' (B) для артикула производителя")
-                print(f"Использую колонку '{nmid_col}' (C) для nmID")
-                print(f"Использую колонку '{barcode_col}' (G) для баркода")
                 
                 for idx, row in df_barcode.iterrows():
                     try:
@@ -182,44 +175,6 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
                             manufacturer_art_to_barcode[manufacturer_art_normalized] = barcode  # Нормализованный
                     except (ValueError, TypeError, KeyError, IndexError):
                         continue
-                
-                print(f"Загружено соответствий артикул_производителя->nmID: {len(art_to_nmid)}")
-                print(f"Загружено соответствий баркод->nmID: {len(barcode_to_nmid)}")
-                print(f"Загружено соответствий артикул_производителя->баркод: {len(manufacturer_art_to_barcode)}")
-                if len(art_to_nmid) > 0:
-                    examples = list(art_to_nmid.items())[:3]
-                    print(f"  Примеры артикул->nmID: {examples}")
-                if len(barcode_to_nmid) > 0:
-                    examples = list(barcode_to_nmid.items())[:3]
-                    print(f"  Примеры баркод->nmID: {examples}")
-                
-                # Отладка: проверяем конкретные артикулы
-                test_articles = ['PF 974', 'W610/6', '3397006952']
-                print(f"\nОтладка: проверка конкретных артикулов:")
-                for test_art in test_articles:
-                    test_art_clean = test_art.replace(' ', '').upper()
-                    found_nmid = None
-                    found_barcode = None
-                    
-                    # Пробуем найти точное совпадение
-                    if test_art in art_to_nmid:
-                        found_nmid = art_to_nmid[test_art]
-                    elif test_art_clean in art_to_nmid:
-                        found_nmid = art_to_nmid[test_art_clean]
-                    
-                    if test_art in manufacturer_art_to_barcode:
-                        found_barcode = manufacturer_art_to_barcode[test_art]
-                    elif test_art_clean in manufacturer_art_to_barcode:
-                        found_barcode = manufacturer_art_to_barcode[test_art_clean]
-                    
-                    if found_nmid:
-                        print(f"  ✓ '{test_art}' -> nmID: {found_nmid}, баркод: {found_barcode or 'не найден'}")
-                    else:
-                        print(f"  ✗ '{test_art}' -> не найден в файле соответствия")
-                        # Показываем похожие артикулы для отладки
-                        similar = [k for k in art_to_nmid.keys() if test_art.upper() in str(k).upper() or str(k).upper() in test_art.upper()]
-                        if similar:
-                            print(f"    Похожие артикулы: {similar[:3]}")
         except Exception as e:
             print(f"Ошибка при чтении файла баркодов: {e}")
             import traceback
@@ -281,10 +236,7 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
     brand_file = Config.TARGET_DIR / f"brand_{brand}.csv"
     
     if not brand_file.exists():
-        print(f"  ⚠ Файл {brand_file} не найден")
         return []
-    
-    print(f"  Читаю файл: {brand_file}")
     
     products = []
     
@@ -383,18 +335,6 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
             except (ValueError, IndexError, TypeError) as e:
                 continue
     
-    print(f"  Найдено товаров: {len(products)}")
-    if products:
-        first_product = products[0]
-        print(f"  Пример: цена={first_product['price']}, количество={first_product['amount']}")
-        print(f"    артикул_производителя={first_product.get('manufacturer_art', 'не найден')}, артикул_продавца={first_product.get('seller_art', 'не найден')}, баркод={first_product.get('barcode', 'не найден')}")
-        # Показываем первые несколько строк для отладки
-        if len(products) > 0:
-            print(f"  Отладка: первые 3 строки CSV:")
-            for i, p in enumerate(products[:3]):
-                row_data = p.get('row', [])
-                row_preview = [str(x)[:30] for x in row_data[:5]] if row_data else []
-                print(f"    Строка {i+1}: {row_preview}")
     return products
 
 
@@ -525,10 +465,6 @@ def update_prices(prices_data: List[Dict[str, Any]]) -> bool:
 
 def main() -> None:
     """Основная функция"""
-    print("=" * 60)
-    print("ОБНОВЛЕНИЕ ОСТАТКОВ И ЦЕН НА WILDBERRIES")
-    print("=" * 60)
-    
     try:
         Config.validate()
     except ValueError as e:
@@ -536,7 +472,6 @@ def main() -> None:
         return
     
     # Получаем список складов
-    print("\n1. Получаю список складов...")
     try:
         warehouses = get_warehouses()
     except requests.exceptions.RequestException as e:
@@ -548,27 +483,23 @@ def main() -> None:
         return
     
     # Читаем файлы соответствия
-    print("\n2. Читаю файлы соответствия...")
     art_to_nmid, barcode_to_nmid, manufacturer_art_to_nmid, manufacturer_art_to_barcode, barcode_to_chrtid = read_mapping_files()
     
     if not art_to_nmid and not barcode_to_nmid:
         print("⚠ Предупреждение: не найдено файлов соответствия")
     
     # Обрабатываем каждый бренд
-    print("\n3. Обрабатываю бренды...")
     
     all_stocks_data: Dict[int, List[Dict[str, Any]]] = {}  # {warehouse_id: [stocks]}
     all_prices_data: List[Dict[str, Any]] = []
     
     for brand in Config.BRANDS:
-        print(f"\nБренд: {brand}")
         products = read_brand_file(brand)
         
         if not products:
             continue
         
         matched_count = 0
-        unmatched_count = 0
         
         for product in products:
             nmid = None
@@ -576,7 +507,6 @@ def main() -> None:
             # Проверяем только артикулы, которые есть в файле "Баркоды.xlsx"
             # Если артикула нет в файле соответствия, пропускаем товар
             if not product.get('manufacturer_art'):
-                unmatched_count += 1
                 continue
             
             manufacturer_art = str(product['manufacturer_art']).strip()
@@ -603,10 +533,6 @@ def main() -> None:
             # Если артикул не найден в файле соответствия, пропускаем товар
             # (это означает, что карточка еще не создана на WB)
             if not art_found:
-                unmatched_count += 1
-                # Выводим первые несколько примеров для информации
-                if unmatched_count <= 5:
-                    print(f"    ⚠ Пропущен (нет в файле соответствия): артикул={manufacturer_art}")
                 continue
             
             matched_count += 1
@@ -649,27 +575,18 @@ def main() -> None:
                     "amount": product['amount']
                 })
         
-        print(f"  Обработано товаров: {len(products)}")
-        print(f"  Найдено соответствий: {matched_count}")
-        if unmatched_count > 0:
-            print(f"  Не найдено соответствий: {unmatched_count}")
-            if unmatched_count > 3:
-                print(f"    (показаны только первые 3 примера)")
+        if matched_count > 0:
+            print(f"  {brand}: обработано {matched_count} товаров")
     
     if not all_stocks_data and not all_prices_data:
         print("\n⚠ Не найдено данных для обновления")
         return
     
     # Выводим информацию о том, что будет обновлено
-    print("\n" + "=" * 60)
-    print("Будет обновлено:")
     total_stocks = sum(len(stocks) for stocks in all_stocks_data.values())
-    print(f"  - Остатков: {total_stocks}")
-    print(f"  - Цен: {len(all_prices_data)}")
-    print("=" * 60)
+    print(f"\nОбновляю: остатков {total_stocks}, цен {len(all_prices_data)}")
     
     # Обновляем остатки только на складе 1619436
-    print("\n4. Обновляю остатки...")
     TARGET_WAREHOUSE_ID = 1619436
     
     if TARGET_WAREHOUSE_ID in all_stocks_data:
@@ -677,20 +594,18 @@ def main() -> None:
         warehouse = next((w for w in warehouses if w.get('id') == TARGET_WAREHOUSE_ID), None)
         warehouse_name = warehouse.get('name', 'Неизвестный склад') if warehouse else 'Неизвестный склад'
         
-        print(f"  Склад: {warehouse_name} (ID: {TARGET_WAREHOUSE_ID})")
-        
         # Разбиваем на батчи по 100
         batch_size = 100
+        total_batches = (len(stocks_data) + batch_size - 1) // batch_size
         for i in range(0, len(stocks_data), batch_size):
             batch = stocks_data[i:i + batch_size]
             batch_num = i//batch_size + 1
-            print(f"    Батч {batch_num} ({len(batch)} товаров)...")
-            if update_stocks(TARGET_WAREHOUSE_ID, batch):
-                print(f"    ✓ Обновлено остатков: {len(batch)}")
-            else:
+            # Показываем прогресс каждые 10 батчей или последний батч
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                print(f"  Остатки: батч {batch_num}/{total_batches}...")
+            if not update_stocks(TARGET_WAREHOUSE_ID, batch):
                 # Если ошибка, делаем задержку перед следующим батчем
                 if i + batch_size < len(stocks_data):
-                    print(f"    ⚠ Задержка 3 секунды перед следующим батчем...")
                     time.sleep(3)
             
             # Добавляем небольшую задержку между батчами для избежания 429 ошибок
@@ -700,29 +615,26 @@ def main() -> None:
         print(f"  ⚠ Нет данных для обновления остатков на складе {TARGET_WAREHOUSE_ID}")
     
     # Обновляем цены
-    print("\n5. Обновляю цены...")
     if all_prices_data:
         # Разбиваем на батчи по 100
         batch_size = 100
+        total_batches = (len(all_prices_data) + batch_size - 1) // batch_size
         for i in range(0, len(all_prices_data), batch_size):
             batch = all_prices_data[i:i + batch_size]
             batch_num = i//batch_size + 1
-            print(f"  Батч {batch_num} ({len(batch)} товаров)...")
-            if update_prices(batch):
-                print(f"  ✓ Обновлено цен: {len(batch)}")
-            else:
+            # Показываем прогресс каждые 10 батчей или последний батч
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                print(f"  Цены: батч {batch_num}/{total_batches}...")
+            if not update_prices(batch):
                 # Если ошибка, делаем задержку перед следующим батчем
                 if i + batch_size < len(all_prices_data):
-                    print(f"  ⚠ Задержка 3 секунды перед следующим батчем...")
                     time.sleep(3)
             
             # Добавляем небольшую задержку между батчами для избежания 429 ошибок
             if i + batch_size < len(all_prices_data):
                 time.sleep(0.5)
     
-    print("\n" + "=" * 60)
     print("Обновление завершено!")
-    print("=" * 60)
 
 
 if __name__ == "__main__":
