@@ -153,26 +153,81 @@ def clear_stocks_by_barcodes(warehouse_id: int, barcodes: List[str], max_retries
                 # Повторяем запрос после задержки
                 continue
             
+            # Обрабатываем 409 ошибку (Conflict) - товары ODC/LCL не подходят для склада
+            if response.status_code == 409:
+                try:
+                    error_data = response.json()
+                    # Проверяем, является ли это ошибкой типа CargoWarehouseRestriction
+                    if isinstance(error_data, list) and len(error_data) > 0:
+                        error_code = error_data[0].get('code', '')
+                        if 'CargoWarehouseRestriction' in error_code:
+                            # Это не критичная ошибка - товары ODC/LCL не подходят для этого склада
+                            # Пробуем обнулить товары по одному, чтобы обнулить те, которые можно
+                            success_count = 0
+                            for barcode in barcodes:
+                                single_payload = {"stocks": [{"sku": barcode, "amount": 0}]}
+                                try:
+                                    single_response = requests.put(url, headers=headers, json=single_payload, timeout=60)
+                                    if single_response.status_code == 200:
+                                        success_count += 1
+                                    elif single_response.status_code == 409:
+                                        # Этот товар не подходит для склада - пропускаем
+                                        continue
+                                except:
+                                    pass
+                            # Возвращаем True даже если не все товары обнулились (ODC товары пропускаются)
+                            return True
+                except (ValueError, KeyError, IndexError):
+                    pass
+                # Если не удалось распарсить ошибку, продолжаем как обычно
+            
             response.raise_for_status()
             return True
         except requests.exceptions.RequestException as e:
-            # Если это последняя попытка, выводим ошибку
+            # Проверяем, не является ли это ошибкой 409 с CargoWarehouseRestriction
+            if hasattr(e, 'response') and e.response is not None:
+                if e.response.status_code == 409:
+                    try:
+                        error_data = e.response.json()
+                        if isinstance(error_data, list) and len(error_data) > 0:
+                            error_code = error_data[0].get('code', '')
+                            if 'CargoWarehouseRestriction' in error_code:
+                                # Это не критичная ошибка - товары ODC/LCL не подходят для склада
+                                # Пробуем обнулить товары по одному
+                                for barcode in barcodes:
+                                    single_payload = {"stocks": [{"sku": barcode, "amount": 0}]}
+                                    try:
+                                        single_response = requests.put(url, headers=headers, json=single_payload, timeout=60)
+                                        if single_response.status_code == 409:
+                                            # Этот товар не подходит для склада - пропускаем
+                                            continue
+                                    except:
+                                        pass
+                                # Возвращаем True даже если не все товары обнулились (ODC товары пропускаются)
+                                return True
+                    except (ValueError, KeyError, IndexError):
+                        pass
+                
+                # Если это последняя попытка и не 429, выводим ошибку только если это не 409 CargoWarehouseRestriction
+                if attempt == max_retries - 1:
+                    if e.response.status_code != 409:
+                        print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
+                        print(f"    Ответ сервера: {e.response.text}")
+                    return False
+                
+                # Если не последняя попытка и это 429, продолжаем цикл
+                if e.response.status_code == 429:
+                    wait_time = 5 * (attempt + 1)
+                    print(f"    ⚠ Превышен лимит запросов (429), ожидание {wait_time} секунд...")
+                    time.sleep(wait_time)
+                    continue
+            
+            # Для других ошибок на последней попытке выводим сообщение
             if attempt == max_retries - 1:
                 print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
                 if hasattr(e, 'response') and e.response is not None:
                     print(f"    Ответ сервера: {e.response.text}")
                 return False
-            # Если не последняя попытка и это 429, продолжаем цикл
-            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
-                wait_time = 5 * (attempt + 1)
-                print(f"    ⚠ Превышен лимит запросов (429), ожидание {wait_time} секунд...")
-                time.sleep(wait_time)
-                continue
-            # Для других ошибок сразу возвращаем False
-            print(f"  ✗ Ошибка при обнулении остатков по баркодам: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"    Ответ сервера: {e.response.text}")
-            return False
     
     return False
 
