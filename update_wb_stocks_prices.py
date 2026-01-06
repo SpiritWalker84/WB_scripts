@@ -660,17 +660,13 @@ def main() -> None:
         print("\n⚠ Не найдено данных для обновления")
         return
     
-    # Подтверждение
+    # Выводим информацию о том, что будет обновлено
     print("\n" + "=" * 60)
-    print("ВНИМАНИЕ! Будет обновлено:")
+    print("Будет обновлено:")
     total_stocks = sum(len(stocks) for stocks in all_stocks_data.values())
     print(f"  - Остатков: {total_stocks}")
     print(f"  - Цен: {len(all_prices_data)}")
     print("=" * 60)
-    confirm = input("\nПродолжить обновление? (yes/no): ").strip().lower()
-    if confirm not in ['yes', 'y', 'да', 'д']:
-        print("Операция отменена.")
-        return
     
     # Обновляем остатки только на складе 1619436
     print("\n4. Обновляю остатки...")

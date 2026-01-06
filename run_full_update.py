@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 import traceback
+import time
 
 # Импортируем функции из других скриптов
 try:
@@ -99,26 +100,19 @@ def main() -> None:
     print("  3. Обновление цен и остатков на Wildberries")
     print("\n" + "=" * 60)
     
-    confirm = input("\nПродолжить выполнение полного цикла? (yes/no): ").strip().lower()
-    if confirm not in ['yes', 'y', 'да', 'д']:
-        print("Операция отменена.")
-        return
-    
     # Шаг 1: Удаление остатков
     if not run_step(1, "Удаление остатков с Wildberries", clear_all_stocks):
         print("\n⚠ Процесс остановлен на шаге 1")
-        response = input("Продолжить со следующего шага? (yes/no): ").strip().lower()
-        if response not in ['yes', 'y', 'да', 'д']:
-            print("Процесс прерван.")
-            return
+        print("Продолжаю со следующего шага...")
+    
+    # Задержка 30 секунд после удаления остатков перед обновлением
+    print("\n⏳ Ожидание 30 секунд после удаления остатков...")
+    time.sleep(30)
     
     # Шаг 2: Загрузка прайсов
     if not run_step(2, "Загрузка прайсов и разбиение по брендам", download_price_main):
         print("\n⚠ Процесс остановлен на шаге 2")
-        response = input("Продолжить со следующего шага? (yes/no): ").strip().lower()
-        if response not in ['yes', 'y', 'да', 'д']:
-            print("Процесс прерван.")
-            return
+        print("Продолжаю со следующего шага...")
     
     # Шаг 3: Обновление цен и остатков
     if not run_step(3, "Обновление цен и остатков", update_stocks_prices_main):
