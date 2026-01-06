@@ -311,13 +311,8 @@ def unzip_and_get_price_file(zip_path: Path, target_dir: Path) -> Path:
     # Сортируем по времени модификации (самый новый первым) и берем первый
     all_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
     
-    if len(all_files) > 1:
-        print(f"Найдено {len(all_files)} файлов (исключая brand_*):")
-        for f in all_files[:5]:  # Показываем первые 5
-            print(f"  - {f.name} (модифицирован: {datetime.fromtimestamp(f.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')})")
-    
     price_file = all_files[0]
-    print(f"Выбран прайс-файл: {price_file}")
+    print(f"Найден прайс-файл: {price_file}")
     
     return price_file
 
@@ -331,13 +326,11 @@ def cleanup_old_brand_files(target_dir: Path) -> None:
     """
     brand_files = list(target_dir.glob("brand_*.csv"))
     if brand_files:
-        print(f"Удаление {len(brand_files)} старых файлов брендов...")
         for brand_file in brand_files:
             try:
                 brand_file.unlink()
             except Exception as e:
                 print(f"Предупреждение: не удалось удалить {brand_file}: {e}")
-        print("Старые файлы брендов удалены")
 
 
 def sanitize_filename(brand: str) -> str:
@@ -365,8 +358,6 @@ def detect_encoding(price_path: Path) -> str:
     Returns:
         str: Кодировка файла (utf-8 или cp1251)
     """
-    print("Определение кодировки...")
-    
     # Пробуем сначала utf-8
     try:
         with open(price_path, 'r', encoding='utf-8') as f:
@@ -377,7 +368,6 @@ def detect_encoding(price_path: Path) -> str:
         encoding = 'utf-8'
     except UnicodeDecodeError:
         # Если не получилось, пробуем cp1251
-        print("Ошибка чтения в utf-8, пробуем cp1251...")
         encoding = 'cp1251'
         try:
             with open(price_path, 'r', encoding='cp1251') as f:
@@ -387,7 +377,6 @@ def detect_encoding(price_path: Path) -> str:
         except UnicodeDecodeError:
             raise Exception(f"Не удалось определить кодировку файла {price_path}")
     
-    print(f"Открыт файл в кодировке {encoding}")
     return encoding
 
 
@@ -401,14 +390,12 @@ def detect_delimiter(sample: str) -> csv.Dialect:
     Returns:
         csv.Dialect: Диалект CSV с определенным разделителем
     """
-    print("Определение разделителя...")
     sniffer = csv.Sniffer()
     dialect = sniffer.sniff(sample, delimiters=',;\t')
     # Настраиваем параметры для корректной обработки кавычек
     dialect.doublequote = True
     dialect.quoting = csv.QUOTE_MINIMAL
     dialect.escapechar = None
-    print(f"Определён разделитель: {repr(dialect.delimiter)}")
     return dialect
 
 
@@ -443,8 +430,6 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
     # Читаем файл и разбиваем по брендам
     brand_files: Dict[str, Dict[str, Any]] = {}
     header: Optional[List[str]] = None
-    brand_counter: Dict[str, int] = {}  # Для отладки: подсчет уникальных брендов
-    sample_brands: List[str] = []  # Для отладки: первые несколько брендов
     
     with open(price_path, 'r', encoding=encoding) as f:
         reader = csv.reader(f, dialect=dialect)
@@ -456,7 +441,6 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
             # Первая строка - заголовок
             if row_num == 0:
                 header = row
-                print(f"Заголовок файла: {header[:5]}...")  # Показываем первые 5 колонок
                 continue
             
             # Первая колонка - бренд
@@ -472,14 +456,6 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
             # Это поможет группировать "JapanParts" и "JapanParts " как один бренд
             brand_key = ' '.join(brand.split())
             
-            # Отладка: собираем первые 10 уникальных брендов
-            if brand_key not in brand_counter:
-                brand_counter[brand_key] = 0
-                if len(sample_brands) < 10:
-                    sample_brands.append(brand)
-            
-            brand_counter[brand_key] += 1
-            
             # Создаем файл для бренда, если его еще нет
             if brand_key not in brand_files:
                 # Используем оригинальное название для имени файла
@@ -490,26 +466,14 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
                     'rows': [],
                     'display_name': brand  # Сохраняем оригинальное название для отображения
                 }
-                print(f"Создан файл для бренда: {brand} -> {brand_file_path}")
             
             # Добавляем строку к бренду
             brand_files[brand_key]['rows'].append(row)
-    
-    # Отладочная информация
-    print(f"\nОтладка: найдено уникальных брендов: {len(brand_counter)}")
-    if len(brand_counter) <= 20:
-        print("Все найденные бренды:")
-        for brand, count in sorted(brand_counter.items(), key=lambda x: x[1], reverse=True):
-            print(f"  - {brand}: {count} строк")
-    else:
-        print(f"Первые 10 найденных брендов: {sample_brands}")
-        print(f"Всего уникальных брендов: {len(brand_counter)}")
     
     if not header:
         raise Exception("Файл не содержит заголовка")
     
     # Записываем файлы для каждого бренда в той же кодировке
-    print("Запись файлов по брендам...")
     created_files: List[Path] = []
     
     for brand_key, data in brand_files.items():
@@ -535,12 +499,8 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
                 writer.writerow(row)
         
         created_files.append(brand_file_path)
-        print(f"Записано {len(data['rows'])} строк для бренда '{brand_display}' в {brand_file_path}")
     
-    print(f"\nСоздано файлов по брендам: {len(created_files)}")
-    print("Список созданных файлов:")
-    for file_path in created_files:
-        print(f"  - {file_path}")
+    print(f"Создано файлов по брендам: {len(created_files)}")
 
 
 def main() -> None:
