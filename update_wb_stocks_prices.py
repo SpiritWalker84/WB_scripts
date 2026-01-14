@@ -32,7 +32,7 @@ class Config:
     BASE_DIR: Path = Path(os.getenv('BASE_DIR', '/home/rinat/wildberries'))
     
     # Бренды для обработки
-    BRANDS: List[str] = ['BOSCH', 'TRIALLI', 'MANN']
+    BRANDS: List[str] = ['BOSCH', 'TRIALLI', 'MANN', 'SANGSIN']
     
     # Коэффициент повышения цены
     PRICE_MULTIPLIER: float = 1.5
@@ -115,12 +115,30 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     manufacturer_art_to_barcode: Dict[str, str] = {}  # Артикул производителя -> баркод
     barcode_to_chrtid: Dict[str, str] = {}
     
-    # Ищем файл с баркодами
+    # Ищем файл с баркодами (приоритет новому файлу)
     barcode_file = None
-    for file in os.listdir('.'):
-        if 'Баркоды' in file and file.endswith('.xlsx'):
-            barcode_file = file
+    # Сначала ищем новый файл 14.01.2026_06.46_Баркоды.xlsx
+    new_barcode_file = '14.01.2026_06.46_Баркоды.xlsx'
+    # Проверяем в текущей директории и в BASE_DIR
+    search_dirs = ['.', str(Config.BASE_DIR)]
+    for search_dir in search_dirs:
+        new_file_path = os.path.join(search_dir, new_barcode_file) if search_dir != '.' else new_barcode_file
+        if os.path.exists(new_file_path):
+            barcode_file = new_file_path
             break
+    
+    if not barcode_file:
+        # Если нового файла нет, ищем любой файл с "Баркоды"
+        for search_dir in search_dirs:
+            try:
+                for file in os.listdir(search_dir):
+                    if 'Баркоды' in file and file.endswith('.xlsx'):
+                        barcode_file = os.path.join(search_dir, file) if search_dir != '.' else file
+                        break
+                if barcode_file:
+                    break
+            except (OSError, PermissionError):
+                continue
     
     if barcode_file:
         try:
@@ -315,7 +333,14 @@ def read_brand_file(brand: str) -> List[Dict[str, Any]]:
                     if (potential_manufacturer_art.lower() not in ['бренд', 'brand', 'артикул', 'артикул продавца', 'название', 'name', 'nan', '', 'none'] and
                         len(potential_manufacturer_art) >= 2 and len(potential_manufacturer_art) <= 20):
                         # Убираем пробелы для сопоставления (AG 01007 -> AG01007)
-                        manufacturer_art = potential_manufacturer_art.replace(' ', '')
+                        manufacturer_art_clean = potential_manufacturer_art.replace(' ', '').upper()
+                        
+                        # Для бренда SANGSIN: фильтруем артикулы - должны начинаться на SP и заканчиваться на цифру
+                        if brand.upper() == 'SANGSIN':
+                            if not (manufacturer_art_clean.startswith('SP') and len(manufacturer_art_clean) >= 3 and manufacturer_art_clean[-1].isdigit()):
+                                continue  # Пропускаем артикулы, не соответствующие критериям
+                        
+                        manufacturer_art = manufacturer_art_clean
                 
                 # Проверяем колонку C (индекс 2) на наличие баркода (маловероятно, но проверим)
                 if len(row) > 2 and row[2]:
