@@ -35,7 +35,7 @@ class Config:
     BRANDS: List[str] = ['BOSCH', 'TRIALLI', 'MANN', 'SANGSIN']
     
     # Коэффициент повышения цены
-    PRICE_MULTIPLIER: float = 1.5
+    PRICE_MULTIPLIER: float = 1.6
     
     @classmethod
     def validate(cls) -> None:
