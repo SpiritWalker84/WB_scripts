@@ -32,7 +32,7 @@ class Config:
     BASE_DIR: Path = Path(os.getenv('BASE_DIR', '/home/rinat/wildberries'))
     
     # Бренды для обработки
-    BRANDS: List[str] = ['BOSCH', 'TRIALLI', 'MANN', 'SANGSIN']
+    BRANDS: List[str] = ['BOSCH', 'TRIALLI', 'MANN', 'SANGSIN', 'DENSO']
     
     # Коэффициент повышения цены
     PRICE_MULTIPLIER: float = 1.6
@@ -117,18 +117,24 @@ def read_mapping_files() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
     
     # Ищем файл с баркодами (приоритет новому файлу)
     barcode_file = None
-    # Сначала ищем новый файл 14.01.2026_06.46_Баркоды.xlsx
-    new_barcode_file = '14.01.2026_06.46_Баркоды.xlsx'
+    # Список файлов баркодов в порядке приоритета (новые первыми)
+    barcode_files_priority = [
+        '18.01.2026_18.22_Баркоды.xlsx',
+        '14.01.2026_06.46_Баркоды.xlsx'
+    ]
     # Проверяем в текущей директории и в BASE_DIR
     search_dirs = ['.', str(Config.BASE_DIR)]
-    for search_dir in search_dirs:
-        new_file_path = os.path.join(search_dir, new_barcode_file) if search_dir != '.' else new_barcode_file
-        if os.path.exists(new_file_path):
-            barcode_file = new_file_path
+    for new_barcode_file in barcode_files_priority:
+        for search_dir in search_dirs:
+            new_file_path = os.path.join(search_dir, new_barcode_file) if search_dir != '.' else new_barcode_file
+            if os.path.exists(new_file_path):
+                barcode_file = new_file_path
+                break
+        if barcode_file:
             break
     
     if not barcode_file:
-        # Если нового файла нет, ищем любой файл с "Баркоды"
+        # Если приоритетных файлов нет, ищем любой файл с "Баркоды"
         for search_dir in search_dirs:
             try:
                 for file in os.listdir(search_dir):
