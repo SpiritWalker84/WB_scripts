@@ -9,10 +9,113 @@
 """
 
 import sys
+import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 import traceback
 import time
+
+# Флаг для отслеживания, была ли уже выполнена проверка venv
+_venv_checked = False
+
+def ensure_venv_and_restart() -> None:
+    """
+    Проверяет наличие виртуального окружения и перезапускает скрипт в нем при необходимости
+    """
+    global _venv_checked
+    
+    # Проверяем только один раз
+    if _venv_checked:
+        return
+    
+    _venv_checked = True
+    
+    # Определяем директорию скрипта
+    script_dir = Path(__file__).parent.absolute()
+    venv_dir = script_dir / "venv"
+    
+    # Определяем путь к python в venv в зависимости от ОС
+    if sys.platform == "win32":
+        venv_python = venv_dir / "Scripts" / "python.exe"
+    else:
+        venv_python = venv_dir / "bin" / "python"
+    
+    # Проверяем, запущен ли скрипт уже из виртуального окружения
+    if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        # Скрипт уже запущен в виртуальном окружении
+        return
+    
+    # Проверяем наличие venv
+    if not venv_dir.exists():
+        print("Виртуальное окружение не найдено. Создаю...")
+        try:
+            # Создаем виртуальное окружение
+            result = subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                cwd=str(script_dir),
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print("Виртуальное окружение создано")
+        except subprocess.CalledProcessError as e:
+            print(f"Ошибка: Не удалось создать виртуальное окружение")
+            if sys.platform != "win32":
+                print(f"Убедитесь, что установлен python3-venv: sudo apt install python3-venv")
+            print(f"Детали ошибки: {e.stderr}")
+            sys.exit(1)
+        except FileNotFoundError:
+            print(f"Ошибка: Python не найден. Убедитесь, что Python 3 установлен.")
+            sys.exit(1)
+    
+    # Проверяем наличие requirements.txt
+    requirements_file = script_dir / "requirements.txt"
+    if requirements_file.exists():
+        # Проверяем, установлены ли зависимости
+        try:
+            # Пробуем импортировать dotenv через venv python
+            result = subprocess.run(
+                [str(venv_python), "-c", "import dotenv"],
+                cwd=str(script_dir),
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                print("Устанавливаю зависимости...")
+                try:
+                    # Устанавливаем зависимости
+                    result = subprocess.run(
+                        [str(venv_python), "-m", "pip", "install", "-r", str(requirements_file)],
+                        cwd=str(script_dir),
+                        check=True,
+                        capture_output=True,
+                        text=True
+                    )
+                    print("Зависимости установлены")
+                except subprocess.CalledProcessError as e:
+                    print(f"Ошибка: Не удалось установить зависимости")
+                    print(f"Детали ошибки: {e.stderr}")
+                    sys.exit(1)
+        except Exception as e:
+            print(f"Предупреждение: Не удалось проверить зависимости: {e}")
+    
+    # Перезапускаем скрипт через venv python
+    print("Перезапускаю скрипт в виртуальном окружении...")
+    try:
+        # Перезапускаем с теми же аргументами
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+    except Exception as e:
+        print(f"Ошибка при перезапуске: {e}")
+        sys.exit(1)
+
+
+# Проверяем venv при загрузке модуля (только при прямом запуске)
+# Это нужно сделать до импортов, чтобы если модули не найдены,
+# скрипт мог перезапуститься в venv
+if __name__ == "__main__" or (len(sys.argv) > 0 and Path(sys.argv[0]).name == "run_full_update.py"):
+    ensure_venv_and_restart()
 
 # Импортируем функции из других скриптов
 try:
