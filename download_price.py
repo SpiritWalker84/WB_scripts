@@ -402,6 +402,7 @@ def detect_delimiter(sample: str) -> csv.Dialect:
 def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
     """
     Разбивает прайс-файл по брендам (первая колонка)
+    Оптимизировано для работы с большими файлами - записывает построчно, не загружая все в память
     
     Args:
         price_path: Путь к прайс-файлу
@@ -427,80 +428,87 @@ def split_price_by_brand(price_path: Path, output_dir: Path) -> None:
     # Определяем разделитель
     dialect = detect_delimiter(sample)
     
-    # Читаем файл и разбиваем по брендам
-    brand_files: Dict[str, Dict[str, Any]] = {}
+    # Словарь для отслеживания открытых файлов и писателей для каждого бренда
+    brand_writers: Dict[str, Any] = {}
+    brand_files: Dict[str, Path] = {}
     header: Optional[List[str]] = None
+    row_count = 0
+    processed_brands: set = set()
     
-    with open(price_path, 'r', encoding=encoding) as f:
-        reader = csv.reader(f, dialect=dialect)
-        
-        for row_num, row in enumerate(reader):
-            if not row:
-                continue
+    try:
+        with open(price_path, 'r', encoding=encoding) as f:
+            reader = csv.reader(f, dialect=dialect)
             
-            # Первая строка - заголовок
-            if row_num == 0:
-                header = row
-                continue
-            
-            # Первая колонка - бренд
-            if len(row) == 0:
-                continue
-            
-            brand = row[0].strip()
-            
-            if not brand:
-                continue
-            
-            # Нормализуем название бренда: убираем только лишние пробелы (но сохраняем регистр)
-            # Это поможет группировать "JapanParts" и "JapanParts " как один бренд
-            brand_key = ' '.join(brand.split())
-            
-            # Создаем файл для бренда, если его еще нет
-            if brand_key not in brand_files:
-                # Используем оригинальное название для имени файла
-                sanitized_brand = sanitize_filename(brand)
-                brand_file_path = output_dir / f"brand_{sanitized_brand}.csv"
-                brand_files[brand_key] = {
-                    'path': brand_file_path,
-                    'rows': [],
-                    'display_name': brand  # Сохраняем оригинальное название для отображения
-                }
-            
-            # Добавляем строку к бренду
-            brand_files[brand_key]['rows'].append(row)
+            for row_num, row in enumerate(reader):
+                if not row:
+                    continue
+                
+                # Первая строка - заголовок
+                if row_num == 0:
+                    header = row
+                    continue
+                
+                # Первая колонка - бренд
+                if len(row) == 0:
+                    continue
+                
+                brand = row[0].strip()
+                
+                if not brand:
+                    continue
+                
+                # Нормализуем название бренда: убираем только лишние пробелы (но сохраняем регистр)
+                # Это поможет группировать "JapanParts" и "JapanParts " как один бренд
+                brand_key = ' '.join(brand.split())
+                
+                # Создаем файл и писатель для бренда, если его еще нет
+                if brand_key not in brand_writers:
+                    # Используем оригинальное название для имени файла
+                    sanitized_brand = sanitize_filename(brand)
+                    brand_file_path = output_dir / f"brand_{sanitized_brand}.csv"
+                    brand_files[brand_key] = brand_file_path
+                    
+                    # Открываем файл для записи
+                    out_f = open(brand_file_path, 'w', encoding=encoding, newline='')
+                    writer = csv.writer(
+                        out_f,
+                        delimiter=dialect.delimiter,
+                        quotechar=dialect.quotechar,
+                        doublequote=True,
+                        quoting=csv.QUOTE_ALL,
+                        escapechar=None
+                    )
+                    
+                    # Записываем заголовок сразу
+                    writer.writerow(header)
+                    
+                    brand_writers[brand_key] = {
+                        'file': out_f,
+                        'writer': writer
+                    }
+                    processed_brands.add(brand_key)
+                
+                # Записываем строку сразу в файл бренда (не накапливаем в памяти)
+                brand_writers[brand_key]['writer'].writerow(row)
+                row_count += 1
+                
+                # Показываем прогресс каждые 100000 строк
+                if row_count % 100000 == 0:
+                    print(f"  Обработано строк: {row_count}, брендов: {len(processed_brands)}")
+    
+    finally:
+        # Закрываем все открытые файлы
+        for brand_key, writer_data in brand_writers.items():
+            try:
+                writer_data['file'].close()
+            except Exception as e:
+                print(f"  Предупреждение: ошибка при закрытии файла для бренда {brand_key}: {e}")
     
     if not header:
         raise Exception("Файл не содержит заголовка")
     
-    # Записываем файлы для каждого бренда в той же кодировке
-    created_files: List[Path] = []
-    
-    for brand_key, data in brand_files.items():
-        brand_file_path = data['path']
-        brand_display = data.get('display_name', brand_key)
-        
-        with open(brand_file_path, 'w', encoding=encoding, newline='') as out_f:
-            # Используем QUOTE_ALL при записи, чтобы все поля были в кавычках
-            writer = csv.writer(
-                out_f,
-                delimiter=dialect.delimiter,
-                quotechar=dialect.quotechar,
-                doublequote=True,
-                quoting=csv.QUOTE_ALL,
-                escapechar=None
-            )
-            
-            # Записываем заголовок
-            writer.writerow(header)
-            
-            # Записываем строки бренда
-            for row in data['rows']:
-                writer.writerow(row)
-        
-        created_files.append(brand_file_path)
-    
-    print(f"Создано файлов по брендам: {len(created_files)}")
+    print(f"Обработано строк: {row_count}")
+    print(f"Создано файлов по брендам: {len(brand_files)}")
 
 
 def main() -> None:
