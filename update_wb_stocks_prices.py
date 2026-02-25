@@ -37,6 +37,9 @@ class Config:
     # Коэффициент повышения цены
     PRICE_MULTIPLIER: float = 1.6
     
+    # Артикулы, которые не выгружаются в остатки (цены обновляются)
+    EXCLUDED_FROM_STOCKS: List[str] = ['W14e', 'W14LM-U']
+    
     @classmethod
     def validate(cls) -> None:
         """Проверяет, что все необходимые переменные окружения установлены"""
@@ -520,10 +523,14 @@ def main() -> None:
         print("⚠ Предупреждение: не найдено файлов соответствия")
     
     # Обрабатываем каждый бренд
-    
+    excluded_from_stocks_normalized = {
+        a.replace(' ', '').upper().replace('-', '').replace('/', '').replace('_', '')
+        for a in Config.EXCLUDED_FROM_STOCKS
+    }
+
     all_stocks_data: Dict[int, List[Dict[str, Any]]] = {}  # {warehouse_id: [stocks]}
     all_prices_data: List[Dict[str, Any]] = []
-    
+
     for brand in Config.BRANDS:
         products = read_brand_file(brand)
         
@@ -598,7 +605,10 @@ def main() -> None:
                         barcode_for_stock = barcode_val
                         break
             
-            if barcode_for_stock:
+            # Не выгружаем в остатки исключённые артикулы (цены для них обновляются)
+            skip_stock = manufacturer_art_normalized in excluded_from_stocks_normalized
+
+            if barcode_for_stock and not skip_stock:
                 # Используем только sku - API сам найдет chrtId по sku при обновлении остатков
                 # Это соответствует логике из update_prices_stocks_wb.py
                 all_stocks_data[TARGET_WAREHOUSE_ID].append({
